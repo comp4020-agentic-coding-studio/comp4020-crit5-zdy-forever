@@ -18,6 +18,9 @@ import {
 } from "three";
 import {
   CAMERA_DISTANCE,
+  CAMERA_FOV_DEGREES,
+  CAMERA_FOV_MAX_DEGREES,
+  CAMERA_FOV_REFERENCE_ASPECT,
   CAMERA_HEIGHT,
   CAMERA_LOOK_HEIGHT,
   PLANET_RADIUS,
@@ -65,7 +68,7 @@ export class SceneManager {
     this.scene.background = new Color(0x030304);
     this.scene.fog = new FogExp2(0x030304, 0.018);
 
-    this.camera = new PerspectiveCamera(55, 1, 0.1, 200);
+    this.camera = new PerspectiveCamera(CAMERA_FOV_DEGREES, 1, 0.1, 200);
 
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -191,8 +194,19 @@ export class SceneManager {
 
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / Math.max(height, 1);
+    const aspect = width / Math.max(height, 1);
+    this.camera.aspect = aspect;
+    this.camera.fov = this.computeFov(aspect);
     this.camera.updateProjectionMatrix();
+  }
+
+  private computeFov(aspect: number): number {
+    if (aspect >= CAMERA_FOV_REFERENCE_ASPECT) return CAMERA_FOV_DEGREES;
+
+    const baseFovRad = (CAMERA_FOV_DEGREES * Math.PI) / 180;
+    const targetHorizontalFovRad = 2 * Math.atan(Math.tan(baseFovRad / 2) * CAMERA_FOV_REFERENCE_ASPECT);
+    const verticalFovRad = 2 * Math.atan(Math.tan(targetHorizontalFovRad / 2) / aspect);
+    return Math.min((verticalFovRad * 180) / Math.PI, CAMERA_FOV_MAX_DEGREES);
   }
 
   syncPlayer(position: Vector3, up: Vector3): void {

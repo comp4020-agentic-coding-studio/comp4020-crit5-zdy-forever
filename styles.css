@@ -160,6 +160,17 @@ main {
   display: block;
 }
 
+/* The joystick only ever shows on coarse-pointer (touch) devices, and it
+   occupies the bottom-left corner -- a bottom-centred dialogue box there
+   would overlap it on a narrow phone, so touch devices get the dialogue up
+   top instead, clear of the control. */
+@media (pointer: coarse) {
+  .dialogue {
+    top: calc(2rem + var(--safe-top));
+    bottom: auto;
+  }
+}
+
 .joystick {
   position: absolute;
   left: calc(2rem + var(--safe-left));

@@ -32,6 +32,15 @@ export const CAMERA_DISTANCE = 9;
 export const CAMERA_HEIGHT = 4;
 export const CAMERA_LOOK_HEIGHT = 1.2;
 
+// Vertical FOV tuned for landscape/desktop. A portrait phone (aspect < 1)
+// applying this unchanged gets a much narrower *horizontal* view -- so
+// SceneManager widens it as aspect drops below CAMERA_FOV_REFERENCE_ASPECT,
+// to keep roughly the same horizontal field of view, clamped so it never
+// turns into a fisheye.
+export const CAMERA_FOV_DEGREES = 55;
+export const CAMERA_FOV_REFERENCE_ASPECT = 16 / 9;
+export const CAMERA_FOV_MAX_DEGREES = 84;
+
 // Held after a win/loss transition before the end screen actually appears,
 // so the moment itself is visible for a beat rather than instantly covered.
 export const END_SCREEN_DELAY_SECONDS = 1.1;
