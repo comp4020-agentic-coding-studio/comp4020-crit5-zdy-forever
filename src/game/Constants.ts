@@ -15,6 +15,10 @@ export const GHOST_LOSE_RADIUS = 11;
 export const GHOST_COLLISION_RADIUS = 1.1;
 
 export const NPC_INTERACTION_RADIUS = 3.5;
+// How long each line of an NPC's dialogue holds before advancing to the
+// next -- there's no input to advance it manually, so this has to be
+// readable at a glance rather than paced for a click.
+export const NPC_LINE_DURATION_SECONDS = 3.2;
 export const ROCKET_TRIGGER_RADIUS = 3;
 
 export const JOYSTICK_OUTER_RADIUS_PX = 62;

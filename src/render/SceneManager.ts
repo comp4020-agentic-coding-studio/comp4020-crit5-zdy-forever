@@ -1,5 +1,6 @@
 import {
   AmbientLight,
+  CapsuleGeometry,
   Color,
   ConeGeometry,
   FogExp2,
@@ -8,6 +9,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
+  PointLight,
   Scene,
   Vector3,
   WebGLRenderer,
@@ -19,6 +21,7 @@ import {
   PLANET_RADIUS,
   PLAYER_HEIGHT,
 } from "../game/Constants.ts";
+import { NPCS } from "../game/World.ts";
 
 const MESH_UP = new Vector3(0, 1, 0);
 
@@ -67,6 +70,29 @@ export class SceneManager {
       new MeshStandardMaterial({ color: 0xcbb994, roughness: 0.8, flatShading: true }),
     );
     this.scene.add(this.playerMesh);
+
+    this.buildNpcs();
+  }
+
+  // NPCs never move, so their meshes/lights are built once here rather than
+  // synced every frame like the player. A warm light reads as "someone
+  // here" against the cold, empty rest of the planet.
+  private buildNpcs(): void {
+    const material = new MeshStandardMaterial({ color: 0xcf9a5c, roughness: 0.7, flatShading: true });
+    const up = new Vector3();
+
+    for (const npc of NPCS) {
+      up.copy(npc.position).normalize();
+
+      const mesh = new Mesh(new CapsuleGeometry(0.35, 0.9, 2, 6), material);
+      mesh.position.copy(npc.position).addScaledVector(up, 0.8);
+      mesh.quaternion.setFromUnitVectors(MESH_UP, up);
+      this.scene.add(mesh);
+
+      const light = new PointLight(0xffb066, 6, 9, 2);
+      light.position.copy(npc.position).addScaledVector(up, 1.6);
+      this.scene.add(light);
+    }
   }
 
   resize(width: number, height: number): void {
