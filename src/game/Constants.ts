@@ -28,3 +28,7 @@ export const JOYSTICK_DEAD_ZONE = 0.12;
 export const CAMERA_DISTANCE = 9;
 export const CAMERA_HEIGHT = 4;
 export const CAMERA_LOOK_HEIGHT = 1.2;
+
+// Held after a win/loss transition before the end screen actually appears,
+// so the moment itself is visible for a beat rather than instantly covered.
+export const END_SCREEN_DELAY_SECONDS = 1.1;

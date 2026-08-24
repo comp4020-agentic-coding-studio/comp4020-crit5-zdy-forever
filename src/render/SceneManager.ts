@@ -33,6 +33,8 @@ export class SceneManager {
 
   private readonly renderer: WebGLRenderer;
   private readonly playerMesh: Mesh;
+  private readonly ghostMesh: Mesh;
+  private readonly ghostLight: PointLight;
 
   // Carried frame-to-frame so the camera eases toward its ideal position
   // instead of snapping to it every frame.
@@ -71,6 +73,25 @@ export class SceneManager {
     );
     this.scene.add(this.playerMesh);
 
+    // A pale, slightly translucent shroud with a cold light of its own --
+    // the one thing on the planet that isn't lit warmly.
+    this.ghostMesh = new Mesh(
+      new IcosahedronGeometry(0.55, 1),
+      new MeshStandardMaterial({
+        color: 0x9fd8ff,
+        emissive: 0x1c3a52,
+        roughness: 0.35,
+        transparent: true,
+        opacity: 0.6,
+        flatShading: true,
+      }),
+    );
+    this.ghostMesh.scale.set(1, 1.6, 1);
+    this.scene.add(this.ghostMesh);
+
+    this.ghostLight = new PointLight(0x6fb7ff, 5, 10, 2);
+    this.scene.add(this.ghostLight);
+
     this.buildNpcs();
   }
 
@@ -104,6 +125,19 @@ export class SceneManager {
   syncPlayer(position: Vector3, up: Vector3): void {
     this.playerMesh.position.copy(position).addScaledVector(up, PLAYER_HEIGHT * 0.5);
     this.playerMesh.quaternion.setFromUnitVectors(MESH_UP, up);
+  }
+
+  syncGhost(position: Vector3, up: Vector3): void {
+    this.ghostMesh.position.copy(position).addScaledVector(up, 0.9);
+    this.ghostMesh.quaternion.setFromUnitVectors(MESH_UP, up);
+    this.ghostLight.position.copy(position).addScaledVector(up, 1.2);
+  }
+
+  // Forces the next updateCamera call to snap to its target instead of
+  // easing toward it -- used after a restart, when the player teleports
+  // back to spawn and a smooth follow would sweep across the whole planet.
+  resetCamera(): void {
+    this.cameraInitialized = false;
   }
 
   updateCamera(playerPosition: Vector3, up: Vector3, forward: Vector3, deltaSeconds: number): void {
