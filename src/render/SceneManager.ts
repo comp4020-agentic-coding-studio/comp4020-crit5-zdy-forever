@@ -41,6 +41,8 @@ export class SceneManager {
   private readonly desiredCameraPosition = new Vector3();
   private readonly desiredLookAt = new Vector3();
   private readonly backward = new Vector3();
+  private readonly rawCameraForward = new Vector3();
+  private readonly upProjection = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
     this.scene.background = new Color(0x030304);
@@ -99,6 +101,23 @@ export class SceneManager {
     this.camera.position.copy(this.cameraPosition);
     this.camera.up.copy(up);
     this.camera.lookAt(this.cameraLookAt);
+  }
+
+  // The camera's forward/right, flattened onto the tangent plane at `up` --
+  // this is what "movement relative to the camera" means on a sphere. Input
+  // is mapped against these, not the raw camera direction, so walking stays
+  // on the surface even while the camera looks slightly down at the planet.
+  getGroundBasis(up: Vector3, outForward: Vector3, outRight: Vector3): void {
+    this.camera.getWorldDirection(this.rawCameraForward);
+    this.upProjection.copy(up).multiplyScalar(this.rawCameraForward.dot(up));
+    outForward.copy(this.rawCameraForward).sub(this.upProjection);
+    if (outForward.lengthSq() < 1e-6) {
+      // Looking straight down/up (rare, e.g. right after a reset): fall back
+      // to the last known backward direction rather than producing NaNs.
+      outForward.copy(this.backward).multiplyScalar(-1);
+    }
+    outForward.normalize();
+    outRight.crossVectors(outForward, up).normalize();
   }
 
   render(): void {

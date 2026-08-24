@@ -1,4 +1,6 @@
-import { SPAWN_FORWARD, SPAWN_POINT } from "./src/game/World.ts";
+import { Vector3 } from "three";
+import { Game } from "./src/game/Game.ts";
+import { InputManager } from "./src/input/InputManager.ts";
 import { SceneManager } from "./src/render/SceneManager.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -9,6 +11,8 @@ if (!canvas || !startOverlay || !startButton) {
   throw new Error("LAST SIGNAL: expected page structure is missing");
 }
 
+const game = new Game();
+const inputManager = new InputManager();
 const sceneManager = new SceneManager(canvas);
 
 function resize(): void {
@@ -17,16 +21,32 @@ function resize(): void {
 window.addEventListener("resize", resize);
 resize();
 
-const up = SPAWN_POINT.clone().normalize();
-sceneManager.syncPlayer(SPAWN_POINT, up);
-sceneManager.updateCamera(SPAWN_POINT, up, SPAWN_FORWARD, 1);
+sceneManager.syncPlayer(game.player.position, game.player.up);
+sceneManager.updateCamera(game.player.position, game.player.up, game.player.forward, 1);
 
-function tick(): void {
+const groundForward = new Vector3();
+const groundRight = new Vector3();
+let lastTime = performance.now();
+
+function tick(now: number): void {
+  // Clamped so a backgrounded/throttled tab doesn't produce one huge delta
+  // (and a huge, sudden movement or camera jump) when it regains focus.
+  const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  const up = game.player.up;
+  sceneManager.getGroundBasis(up, groundForward, groundRight);
+  game.update(inputManager.read(), groundForward, groundRight, deltaSeconds);
+
+  sceneManager.syncPlayer(game.player.position, game.player.up);
+  sceneManager.updateCamera(game.player.position, game.player.up, game.player.forward, deltaSeconds);
   sceneManager.render();
+
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 
 startButton.addEventListener("click", () => {
+  game.begin();
   startOverlay.hidden = true;
 });
