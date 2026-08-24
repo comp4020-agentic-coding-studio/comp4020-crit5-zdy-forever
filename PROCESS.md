@@ -113,6 +113,21 @@ what was already proven to work, not by picking arbitrarily:
   thresholds, and `prefers-reduced-motion` is expected to gate camera
   shake/distortion rather than the light cycle itself, since the cycle is the
   one mechanic the whole game is built on.
+- **Fairness trace.** The margin between `GHOST_INITIAL_DISTANCE` (20) and
+  `GHOST_LOSS_THRESHOLD` (3) is 17 units; `GHOST_PENALTY_PER_SECOND` is 5.5 at
+  full input magnitude. Treating one "mistake" as roughly a one-second lapse
+  (moving at full speed for ~1s before stopping) costs 5.5 units, so a player
+  who keeps making that same short mistake survives about three of them
+  (17 / 5.5 ≈ 3.1) — inside the brief's "2–3 mistakes" target — regardless of
+  tier. Treating a mistake as never stopping for an entire dark period instead
+  gives a curve that gets harsher as the game progresses, which is intended:
+  early tier's shortest dark span (1.6s, minus the 0.2s grace) costs
+  1.0 × 5.5 × 1.4 ≈ 7.7 units (about 2.2 fully-ignored dark periods to lose),
+  while late tier's longest dark span (3.6s, minus grace) costs
+  1.0 × 5.5 × 3.4 ≈ 18.7 units — enough on its own to lose from full health,
+  which is deliberate: by the late tier a single fully-ignored blackout should
+  be fatal. The final forced blackout (3.5s) sits deliberately in that same
+  late-tier range rather than being a separate, harsher spike.
 
 ## Corrections
 
