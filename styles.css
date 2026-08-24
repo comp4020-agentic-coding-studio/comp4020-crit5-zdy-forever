@@ -1,16 +1,181 @@
-body {
-  margin: 0;
-  padding: 2rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
-  color: #1a1a1a;
+:root {
+  color-scheme: dark;
+
+  --bg: #030304;
+  --ink: #d8dce4;
+  --ink-dim: rgb(216 220 228 / 60%);
+  --accent: #b8862f;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
-main {
-  max-width: 40rem;
-  margin: 0 auto;
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  overflow: hidden;
 }
 
 a {
-  color: #0b5fff;
+  color: var(--accent);
+}
+
+header {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+
+main {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#scene {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.start-overlay,
+.end-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2rem;
+  background: rgb(3 3 4 / 88%);
+}
+
+.start-overlay:not([hidden]),
+.end-screen:not([hidden]) {
+  display: flex;
+}
+
+.start-overlay h1,
+.end-screen p {
+  margin: 0;
+  font-size: clamp(1.75rem, 6vw, 3rem);
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-align: center;
+  color: var(--ink);
+}
+
+.start-button,
+.restart-button {
+  width: clamp(4rem, 14vw, 5.5rem);
+  height: clamp(4rem, 14vw, 5.5rem);
+  border-radius: 50%;
+  border: 1px solid rgb(216 220 228 / 35%);
+  background: rgb(216 220 228 / 8%);
+  cursor: pointer;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.start-button::after,
+.restart-button::after {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 0 auto;
+  border-style: solid;
+  border-width: 0.7em 0 0.7em 1.1em;
+  border-color: transparent transparent transparent var(--ink);
+}
+
+.restart-button::after {
+  width: 0.9em;
+  height: 0.9em;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 0.15em solid var(--ink);
+  border-top-color: transparent;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(216 220 228 / 20%);
+  }
+
+  50% {
+    box-shadow: 0 0 0 1rem rgb(216 220 228 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-button,
+  .restart-button {
+    animation: none;
+  }
+}
+
+.dialogue {
+  position: absolute;
+  left: 50%;
+  bottom: calc(3rem + var(--safe-bottom));
+  z-index: 5;
+  max-width: min(32rem, 86vw);
+  padding: 0.9rem 1.3rem;
+  border-radius: 0.5rem;
+  background: rgb(3 3 4 / 72%);
+  color: var(--ink);
+  font-size: clamp(0.9rem, 2.4vw, 1.05rem);
+  text-align: center;
+  transform: translate(-50%, 0);
+}
+
+.dialogue:not([hidden]) {
+  display: block;
+}
+
+.joystick {
+  position: absolute;
+  left: calc(2rem + var(--safe-left));
+  bottom: calc(2rem + var(--safe-bottom));
+  z-index: 5;
+  width: 8.5rem;
+  height: 8.5rem;
+  border-radius: 50%;
+  background: rgb(216 220 228 / 10%);
+  border: 1px solid rgb(216 220 228 / 20%);
+  touch-action: none;
+}
+
+.joystick:not([hidden]) {
+  display: block;
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: rgb(216 220 228 / 30%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }

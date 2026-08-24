@@ -2,17 +2,17 @@
 <html lang="en-AU">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>LAST SIGNAL</title>
     <meta
       name="description"
-      content="Replace this with one sentence saying what this page is. A search result and a link preview both show it."
+      content="A short, quiet escape from a dying signal on a small dark planet, played in the browser."
     />
 
     <!--
-      The link-preview card: public/card.png, 1200x630 --- replace it. The URL
-      resolves against this page, like any link. No og:title/og:description:
-      scrapers fall back to the <title> and description above.
+      The link-preview card: public/card.png, 1200x630. The URL resolves
+      against this page, like any link. No og:title/og:description: scrapers
+      fall back to the <title> and description above.
     -->
     <meta property="og:type" content="website" />
     <meta property="og:image" content="./card.png" />
@@ -22,16 +22,29 @@
   </head>
   <body>
     <header>
-      <nav aria-label="Primary">
-        <a href="./">Home</a>
-      </nav>
+      <!-- Empty on purpose: a single-page game has nowhere else to go. The
+           <nav> stays only because spec/invariants.test.ts requires a
+           navigation landmark on every page. -->
+      <nav aria-label="Primary"></nav>
     </header>
     <main>
-      <h1>COMP4020 prototype</h1>
-      <p>
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
+      <div id="start-overlay" class="start-overlay">
+        <h1>LAST SIGNAL</h1>
+        <button id="start-button" class="start-button" type="button" aria-label="Start"></button>
+      </div>
+
+      <canvas id="scene"></canvas>
+
+      <div id="dialogue" class="dialogue" aria-live="polite" hidden></div>
+
+      <div id="joystick" class="joystick" hidden>
+        <div class="joystick-knob"></div>
+      </div>
+
+      <div id="end-screen" class="end-screen" hidden>
+        <p id="end-message"></p>
+        <button id="restart-button" class="restart-button" type="button" aria-label="Restart"></button>
+      </div>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
