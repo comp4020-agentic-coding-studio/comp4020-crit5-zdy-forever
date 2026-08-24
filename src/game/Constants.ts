@@ -35,3 +35,9 @@ export const CAMERA_LOOK_HEIGHT = 1.2;
 // Held after a win/loss transition before the end screen actually appears,
 // so the moment itself is visible for a beat rather than instantly covered.
 export const END_SCREEN_DELAY_SECONDS = 1.1;
+
+// Distance from the ghost that drives both the ambient audio tier and the
+// vignette/camera-jitter dread effect -- they escalate together, on the
+// same measurement, rather than being tuned separately.
+export const DREAD_MEDIUM_DISTANCE = 15;
+export const DREAD_NEAR_DISTANCE = 9;

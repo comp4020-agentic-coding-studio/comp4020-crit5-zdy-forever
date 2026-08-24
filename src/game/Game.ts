@@ -44,6 +44,13 @@ export class Game {
     return this.activeNpc ? this.activeNpc.lines[this.dialogueLineIndex] : null;
   }
 
+  // Straight-line distance from the player to the ghost, regardless of its
+  // mode -- the one number atmosphere (audio tier, vignette, camera jitter)
+  // is driven from.
+  get ghostDistance(): number {
+    return this.player.position.distanceTo(this.ghost.position);
+  }
+
   // null until a win/loss has landed AND its short reveal delay has passed.
   get endScreenText(): string | null {
     if (this.phase === "lost" && this.endScreenTimer <= 0) return "FOUND";

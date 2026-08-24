@@ -42,6 +42,12 @@ export class SceneManager {
   private readonly rocketUp: Vector3;
   private rocketAltitude = 0;
 
+  // How close the ghost is (0 = far/dormant, 1 = right on top of the
+  // player) -- drives a very small camera jitter, skipped entirely under
+  // prefers-reduced-motion.
+  private dread = 0;
+  private readonly reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
   // Carried frame-to-frame so the camera eases toward its ideal position
   // instead of snapping to it every frame.
   private readonly cameraPosition = new Vector3();
@@ -218,6 +224,13 @@ export class SceneManager {
     this.rocketAltitude = 0;
   }
 
+  // 0 (calm) to 1 (right on top of the player). Read live each frame rather
+  // than cached, so a system-level reduced-motion toggle takes effect
+  // immediately without needing a restart.
+  setDread(dread: number): void {
+    this.dread = dread;
+  }
+
   updateCamera(playerPosition: Vector3, up: Vector3, forward: Vector3, deltaSeconds: number): void {
     this.backward.copy(forward).multiplyScalar(-1);
     this.desiredCameraPosition
@@ -237,6 +250,12 @@ export class SceneManager {
     }
 
     this.camera.position.copy(this.cameraPosition);
+    if (this.dread > 0 && !this.reducedMotionQuery.matches) {
+      const magnitude = this.dread * 0.05;
+      this.camera.position.x += (Math.random() * 2 - 1) * magnitude;
+      this.camera.position.y += (Math.random() * 2 - 1) * magnitude;
+      this.camera.position.z += (Math.random() * 2 - 1) * magnitude;
+    }
     this.camera.up.copy(up);
     this.camera.lookAt(this.cameraLookAt);
   }

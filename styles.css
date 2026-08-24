@@ -55,6 +55,15 @@ main {
   touch-action: none;
 }
 
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgb(120 10 10 / 55%) 100%);
+  opacity: 0;
+}
+
 .start-overlay,
 .end-screen {
   position: absolute;
