@@ -6,13 +6,15 @@ import { SceneManager } from "./src/render/SceneManager.ts";
 const canvas = document.querySelector<HTMLCanvasElement>("#scene");
 const startOverlay = document.querySelector<HTMLElement>("#start-overlay");
 const startButton = document.querySelector<HTMLButtonElement>("#start-button");
+const joystickRoot = document.querySelector<HTMLElement>("#joystick");
+const joystickKnob = document.querySelector<HTMLElement>(".joystick-knob");
 
-if (!canvas || !startOverlay || !startButton) {
+if (!canvas || !startOverlay || !startButton || !joystickRoot || !joystickKnob) {
   throw new Error("LAST SIGNAL: expected page structure is missing");
 }
 
 const game = new Game();
-const inputManager = new InputManager();
+const inputManager = new InputManager(joystickRoot, joystickKnob);
 const sceneManager = new SceneManager(canvas);
 
 function resize(): void {
