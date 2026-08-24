@@ -65,9 +65,8 @@ describe("teaches itself -- no instructions, on screen or off", () => {
 });
 
 // The spec's other mechanically-checkable line -- "one rule of the game has
-// a focused automated test" -- is on you, not this file: it depends on
-// whichever mechanic you choose, so it can't be written until the game
-// exists. Add it as its own describe block once you know what the one rule
-// is. Whether play can actually be lost, and whether a stranger reaches an
-// ending in five minutes without instructions, is the crit's job to play and
-// judge -- see the published spec.
+// a focused automated test" -- lives in spec/rules.test.ts: ghost collision
+// ends the game, reaching the rocket wins it. Whether play can actually be
+// lost, and whether a stranger reaches an ending in five minutes without
+// instructions, is the crit's job to play and judge -- see the published
+// spec.
