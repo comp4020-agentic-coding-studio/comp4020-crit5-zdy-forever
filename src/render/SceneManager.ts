@@ -1,12 +1,11 @@
 import {
   AmbientLight,
+  BoxGeometry,
   CapsuleGeometry,
   Color,
   ConeGeometry,
-  CylinderGeometry,
   FogExp2,
   HemisphereLight,
-  IcosahedronGeometry,
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
@@ -23,13 +22,28 @@ import {
   CAMERA_FOV_REFERENCE_ASPECT,
   CAMERA_HEIGHT,
   CAMERA_LOOK_HEIGHT,
-  PLANET_RADIUS,
+  CORRIDOR_HEIGHT,
+  CORRIDOR_LENGTH,
   PLAYER_HEIGHT,
-  ROCKET_LAUNCH_SPEED,
 } from "../game/Constants.ts";
-import { BEACON_POSITIONS, NPCS, RADIO_TOWER_POSITION, ROCKET_POSITION, SHELTER_POSITION } from "../game/World.ts";
+import {
+  CHAMBER_CENTER_Z,
+  CHAMBER_HALF_LENGTH,
+  CHAMBER_HALF_WIDTH,
+  DAMAGED_FIXTURE_INDEX,
+  EXIT_POSITION,
+  LIGHT_FIXTURE_POSITIONS,
+  corridorHalfWidthAt,
+} from "../game/Corridor.ts";
 
-const MESH_UP = new Vector3(0, 1, 0);
+const UP = new Vector3(0, 1, 0);
+const AMBIENT_BASE_INTENSITY = 1.1;
+const HEMISPHERE_BASE_INTENSITY = 0.85;
+const FIXTURE_LIGHT_BASE_INTENSITY = 4.5;
+const PLAYER_MESH_HEIGHT = PLAYER_HEIGHT * 1.5;
+const GHOST_CAPSULE_RADIUS = 0.3;
+const GHOST_CAPSULE_LENGTH = 2.2;
+const GHOST_MESH_HALF_HEIGHT = GHOST_CAPSULE_LENGTH / 2 + GHOST_CAPSULE_RADIUS;
 
 // Builds the Three.js scene once and exposes small, focused update methods
 // so the pure game layer (src/game) never has to import Three.js itself.
@@ -40,13 +54,14 @@ export class SceneManager {
   private readonly renderer: WebGLRenderer;
   private readonly playerMesh: Mesh;
   private readonly ghostMesh: Mesh;
-  private readonly ghostLight: PointLight;
-  private readonly rocketMesh: Mesh;
-  private readonly rocketUp: Vector3;
-  private rocketAltitude = 0;
+  private readonly ambientLight: AmbientLight;
+  private readonly hemisphereLight: HemisphereLight;
+  private readonly fixtureLights: PointLight[] = [];
+  private readonly fixtureMaterials: MeshStandardMaterial[] = [];
+  private flickerClock = 0;
 
-  // How close the ghost is (0 = far/dormant, 1 = right on top of the
-  // player) -- drives a very small camera jitter, skipped entirely under
+  // How close the ghost is (0 = far, 1 = right on top of the player) --
+  // drives a very small camera jitter, skipped entirely under
   // prefers-reduced-motion.
   private dread = 0;
   private readonly reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -62,134 +77,135 @@ export class SceneManager {
   private readonly desiredLookAt = new Vector3();
   private readonly backward = new Vector3();
   private readonly rawCameraForward = new Vector3();
-  private readonly upProjection = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
-    this.scene.background = new Color(0x030304);
-    this.scene.fog = new FogExp2(0x030304, 0.018);
+    this.scene.background = new Color(0x040406);
+    this.scene.fog = new FogExp2(0x040406, 0.035);
 
     this.camera = new PerspectiveCamera(CAMERA_FOV_DEGREES, 1, 0.1, 200);
 
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    this.scene.add(new AmbientLight(0x2a2a3a, 1.1));
-    this.scene.add(new HemisphereLight(0x33415c, 0x0a0a10, 0.85));
+    this.ambientLight = new AmbientLight(0x2a2a3a, AMBIENT_BASE_INTENSITY);
+    this.scene.add(this.ambientLight);
+    this.hemisphereLight = new HemisphereLight(0x33415c, 0x0a0a10, HEMISPHERE_BASE_INTENSITY);
+    this.scene.add(this.hemisphereLight);
 
-    const planet = new Mesh(
-      new IcosahedronGeometry(PLANET_RADIUS, 2),
-      new MeshStandardMaterial({ color: 0x2a2b30, roughness: 1, flatShading: true }),
-    );
-    this.scene.add(planet);
+    this.buildCorridor();
+    this.buildFixtures();
+    this.buildExit();
 
     this.playerMesh = new Mesh(
-      new ConeGeometry(0.4, 1.3, 6),
+      new ConeGeometry(0.4, PLAYER_MESH_HEIGHT, 6),
       new MeshStandardMaterial({ color: 0xcbb994, roughness: 0.8, flatShading: true }),
     );
     this.scene.add(this.playerMesh);
 
-    // A pale, slightly translucent shroud with a cold light of its own --
-    // the one thing on the planet that isn't lit warmly.
+    // Tall, narrow, desaturated, and deliberately not emissive -- it has no
+    // light of its own, so it only reads clearly once the corridor's own
+    // lights come back on.
     this.ghostMesh = new Mesh(
-      new IcosahedronGeometry(0.55, 1),
-      new MeshStandardMaterial({
-        color: 0x9fd8ff,
-        emissive: 0x1c3a52,
-        roughness: 0.35,
-        transparent: true,
-        opacity: 0.6,
-        flatShading: true,
-      }),
+      new CapsuleGeometry(GHOST_CAPSULE_RADIUS, GHOST_CAPSULE_LENGTH, 4, 8),
+      new MeshStandardMaterial({ color: 0xaab4b8, roughness: 0.95, flatShading: true }),
     );
-    this.ghostMesh.scale.set(1, 1.6, 1);
+    const head = new Mesh(
+      new SphereGeometry(0.22, 6, 5),
+      new MeshStandardMaterial({ color: 0x9aa4a8, roughness: 1, flatShading: true }),
+    );
+    head.position.y = GHOST_CAPSULE_LENGTH / 2 + 0.18;
+    this.ghostMesh.add(head);
     this.scene.add(this.ghostMesh);
-
-    this.ghostLight = new PointLight(0x6fb7ff, 5, 10, 2);
-    this.scene.add(this.ghostLight);
-
-    this.buildNpcs();
-    const rocket = this.buildLandmarks();
-    this.rocketMesh = rocket.mesh;
-    this.rocketUp = rocket.up;
   }
 
-  // NPCs never move, so their meshes/lights are built once here rather than
-  // synced every frame like the player. A warm light reads as "someone
-  // here" against the cold, empty rest of the planet.
-  private buildNpcs(): void {
-    const material = new MeshStandardMaterial({ color: 0xcf9a5c, roughness: 0.7, flatShading: true });
-    const up = new Vector3();
+  // Segmented into three runs (before/through/after the wider chamber) so
+  // the chamber actually reads as wider rather than being a uniform tube.
+  private buildCorridor(): void {
+    const floorMaterial = new MeshStandardMaterial({ color: 0x161619, roughness: 1, flatShading: true });
+    const ceilingMaterial = new MeshStandardMaterial({ color: 0x101013, roughness: 1, flatShading: true });
+    const wallMaterial = new MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.95, flatShading: true });
 
-    for (const npc of NPCS) {
-      up.copy(npc.position).normalize();
+    const chamberStart = CHAMBER_CENTER_Z - CHAMBER_HALF_LENGTH;
+    const chamberEnd = CHAMBER_CENTER_Z + CHAMBER_HALF_LENGTH;
+    const segments: Array<[number, number]> = [
+      [-1, chamberStart],
+      [chamberStart, chamberEnd],
+      [chamberEnd, CORRIDOR_LENGTH + 5],
+    ];
 
-      const mesh = new Mesh(new CapsuleGeometry(0.35, 0.9, 2, 6), material);
-      mesh.position.copy(npc.position).addScaledVector(up, 0.8);
-      mesh.quaternion.setFromUnitVectors(MESH_UP, up);
+    for (const [zStart, zEnd] of segments) {
+      const halfWidth = corridorHalfWidthAt((zStart + zEnd) / 2);
+      this.buildCorridorSegment(zStart, zEnd, halfWidth, floorMaterial, ceilingMaterial, wallMaterial);
+    }
+  }
+
+  private buildCorridorSegment(
+    zStart: number,
+    zEnd: number,
+    halfWidth: number,
+    floorMaterial: MeshStandardMaterial,
+    ceilingMaterial: MeshStandardMaterial,
+    wallMaterial: MeshStandardMaterial,
+  ): void {
+    const length = zEnd - zStart;
+    const centerZ = (zStart + zEnd) / 2;
+
+    const floor = new Mesh(new BoxGeometry(halfWidth * 2, 0.2, length), floorMaterial);
+    floor.position.set(0, -0.1, centerZ);
+    this.scene.add(floor);
+
+    const ceiling = new Mesh(new BoxGeometry(halfWidth * 2, 0.2, length), ceilingMaterial);
+    ceiling.position.set(0, CORRIDOR_HEIGHT + 0.1, centerZ);
+    this.scene.add(ceiling);
+
+    const leftWall = new Mesh(new BoxGeometry(0.2, CORRIDOR_HEIGHT, length), wallMaterial);
+    leftWall.position.set(-halfWidth, CORRIDOR_HEIGHT / 2, centerZ);
+    this.scene.add(leftWall);
+
+    const rightWall = new Mesh(new BoxGeometry(0.2, CORRIDOR_HEIGHT, length), wallMaterial);
+    rightWall.position.set(halfWidth, CORRIDOR_HEIGHT / 2, centerZ);
+    this.scene.add(rightWall);
+  }
+
+  // Ceiling fixture meshes + matching PointLights, each independently
+  // dimmable so updateLights can drive the on/warning/dark cycle. Kept in
+  // parallel arrays rather than one object list to avoid per-frame
+  // allocation when scaling their intensity every tick.
+  private buildFixtures(): void {
+    for (const position of LIGHT_FIXTURE_POSITIONS) {
+      const material = new MeshStandardMaterial({
+        color: 0x3a3226,
+        emissive: 0xffe9c2,
+        emissiveIntensity: 1,
+        roughness: 0.6,
+        flatShading: true,
+      });
+      const mesh = new Mesh(new BoxGeometry(0.6, 0.12, 0.6), material);
+      mesh.position.set(0, CORRIDOR_HEIGHT - 0.1, position.z);
       this.scene.add(mesh);
 
-      const light = new PointLight(0xffb066, 6, 9, 2);
-      light.position.copy(npc.position).addScaledVector(up, 1.6);
+      const light = new PointLight(0xffdca8, FIXTURE_LIGHT_BASE_INTENSITY, 7, 2);
+      light.position.set(0, CORRIDOR_HEIGHT - 0.3, position.z);
       this.scene.add(light);
+
+      this.fixtureMaterials.push(material);
+      this.fixtureLights.push(light);
     }
   }
 
-  // The static environmental landmarks that lead the player from the NPCs
-  // toward the rocket: a radio tower, a damaged shelter, a chain of red
-  // beacons, and the rocket itself. Returns the rocket's mesh/up so the
-  // constructor can keep them for the launch animation.
-  private buildLandmarks(): { mesh: Mesh; up: Vector3 } {
-    const up = new Vector3();
-    const darkMetal = new MeshStandardMaterial({ color: 0x1c1d21, roughness: 0.9, flatShading: true });
-
-    up.copy(RADIO_TOWER_POSITION).normalize();
-    const tower = new Mesh(new CylinderGeometry(0.15, 0.3, 7, 5), darkMetal);
-    tower.position.copy(RADIO_TOWER_POSITION).addScaledVector(up, 3.5);
-    tower.quaternion.setFromUnitVectors(MESH_UP, up);
-    this.scene.add(tower);
-
-    up.copy(SHELTER_POSITION).normalize();
-    const shelter = new Mesh(
-      new SphereGeometry(1.6, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2),
-      new MeshStandardMaterial({ color: 0x24252b, roughness: 1, flatShading: true }),
+  // The exit door and its glow -- always on, independent of the light cycle,
+  // so it stays a fixed point of orientation even through a blackout.
+  private buildExit(): void {
+    const door = new Mesh(
+      new BoxGeometry(CHAMBER_HALF_WIDTH, CORRIDOR_HEIGHT - 0.4, 0.3),
+      new MeshStandardMaterial({ color: 0x14201c, roughness: 0.8, flatShading: true }),
     );
-    shelter.position.copy(SHELTER_POSITION);
-    shelter.quaternion.setFromUnitVectors(MESH_UP, up);
-    this.scene.add(shelter);
+    door.position.set(0, (CORRIDOR_HEIGHT - 0.4) / 2, EXIT_POSITION.z + 1.5);
+    this.scene.add(door);
 
-    const beaconMaterial = new MeshStandardMaterial({
-      color: 0x4a1414,
-      emissive: 0xaa2222,
-      emissiveIntensity: 1.2,
-      roughness: 0.6,
-      flatShading: true,
-    });
-    for (const beaconPosition of BEACON_POSITIONS) {
-      up.copy(beaconPosition).normalize();
-
-      const beacon = new Mesh(new ConeGeometry(0.4, 1.4, 5), beaconMaterial);
-      beacon.position.copy(beaconPosition).addScaledVector(up, 0.7);
-      beacon.quaternion.setFromUnitVectors(MESH_UP, up);
-      this.scene.add(beacon);
-
-      const light = new PointLight(0xff3b30, 5, 8, 2);
-      light.position.copy(beaconPosition).addScaledVector(up, 1.6);
-      this.scene.add(light);
-    }
-
-    const rocketUp = ROCKET_POSITION.clone().normalize();
-    const rocketMesh = new Mesh(
-      new ConeGeometry(0.9, 3.2, 8),
-      new MeshStandardMaterial({ color: 0xd7dbe2, roughness: 0.5, flatShading: true }),
-    );
-    rocketMesh.quaternion.setFromUnitVectors(MESH_UP, rocketUp);
-    this.scene.add(rocketMesh);
-
-    const rocketLight = new PointLight(0xffffff, 5, 10, 2);
-    rocketLight.position.copy(ROCKET_POSITION).addScaledVector(rocketUp, 2.5);
-    this.scene.add(rocketLight);
-
-    return { mesh: rocketMesh, up: rocketUp };
+    const exitLight = new PointLight(0x8fe0c8, 6, 14, 2);
+    exitLight.position.set(0, CORRIDOR_HEIGHT * 0.6, EXIT_POSITION.z + 1);
+    this.scene.add(exitLight);
   }
 
   resize(width: number, height: number): void {
@@ -209,33 +225,19 @@ export class SceneManager {
     return Math.min((verticalFovRad * 180) / Math.PI, CAMERA_FOV_MAX_DEGREES);
   }
 
-  syncPlayer(position: Vector3, up: Vector3): void {
-    this.playerMesh.position.copy(position).addScaledVector(up, PLAYER_HEIGHT * 0.5);
-    this.playerMesh.quaternion.setFromUnitVectors(MESH_UP, up);
+  syncPlayer(position: Vector3): void {
+    this.playerMesh.position.copy(position).setY(PLAYER_MESH_HEIGHT / 2);
   }
 
-  syncGhost(position: Vector3, up: Vector3): void {
-    this.ghostMesh.position.copy(position).addScaledVector(up, 0.9);
-    this.ghostMesh.quaternion.setFromUnitVectors(MESH_UP, up);
-    this.ghostLight.position.copy(position).addScaledVector(up, 1.2);
+  syncGhost(position: Vector3): void {
+    this.ghostMesh.position.copy(position).setY(GHOST_MESH_HALF_HEIGHT);
   }
 
   // Forces the next updateCamera call to snap to its target instead of
-  // easing toward it -- used after a restart, when the player teleports
-  // back to spawn and a smooth follow would sweep across the whole planet.
+  // easing toward it -- used after a restart, when the player teleports back
+  // to spawn and a smooth follow would otherwise sweep across the corridor.
   resetCamera(): void {
     this.cameraInitialized = false;
-  }
-
-  // Called every frame regardless of phase, so the rocket sits at rest on
-  // the pad until `launching` (the win condition landing) starts it rising.
-  updateRocket(launching: boolean, deltaSeconds: number): void {
-    if (launching) this.rocketAltitude += deltaSeconds * ROCKET_LAUNCH_SPEED;
-    this.rocketMesh.position.copy(ROCKET_POSITION).addScaledVector(this.rocketUp, 1.6 + this.rocketAltitude);
-  }
-
-  resetRocket(): void {
-    this.rocketAltitude = 0;
   }
 
   // 0 (calm) to 1 (right on top of the player). Read live each frame rather
@@ -245,13 +247,32 @@ export class SceneManager {
     this.dread = dread;
   }
 
-  updateCamera(playerPosition: Vector3, up: Vector3, forward: Vector3, deltaSeconds: number): void {
+  // intensity: LightController's 0 (dark) .. 1 (on) value. Ambient/hemisphere
+  // keep a small floor (never truly zero) so the corridor silhouette stays
+  // faintly readable even during a blackout; the fixtures themselves swing
+  // fully from off to on. One fixture flickers a little even at full
+  // intensity -- a cosmetic, always-on detail unrelated to game state.
+  updateLights(intensity: number, deltaSeconds: number): void {
+    this.flickerClock += deltaSeconds;
+    const ambientFraction = 0.06 + 0.94 * intensity;
+    this.ambientLight.intensity = AMBIENT_BASE_INTENSITY * ambientFraction;
+    this.hemisphereLight.intensity = HEMISPHERE_BASE_INTENSITY * ambientFraction;
+
+    for (let i = 0; i < this.fixtureLights.length; i++) {
+      const damagedFlicker = i === DAMAGED_FIXTURE_INDEX ? 0.55 + 0.45 * Math.sin(this.flickerClock * 14) : 1;
+      const fixtureIntensity = intensity * damagedFlicker;
+      this.fixtureLights[i].intensity = FIXTURE_LIGHT_BASE_INTENSITY * fixtureIntensity;
+      this.fixtureMaterials[i].emissiveIntensity = fixtureIntensity;
+    }
+  }
+
+  updateCamera(playerPosition: Vector3, forward: Vector3, deltaSeconds: number): void {
     this.backward.copy(forward).multiplyScalar(-1);
     this.desiredCameraPosition
       .copy(playerPosition)
-      .addScaledVector(up, CAMERA_HEIGHT)
+      .addScaledVector(UP, CAMERA_HEIGHT)
       .addScaledVector(this.backward, CAMERA_DISTANCE);
-    this.desiredLookAt.copy(playerPosition).addScaledVector(up, CAMERA_LOOK_HEIGHT);
+    this.desiredLookAt.copy(playerPosition).addScaledVector(UP, CAMERA_LOOK_HEIGHT);
 
     if (!this.cameraInitialized) {
       this.cameraPosition.copy(this.desiredCameraPosition);
@@ -270,25 +291,24 @@ export class SceneManager {
       this.camera.position.y += (Math.random() * 2 - 1) * magnitude;
       this.camera.position.z += (Math.random() * 2 - 1) * magnitude;
     }
-    this.camera.up.copy(up);
+    this.camera.up.copy(UP);
     this.camera.lookAt(this.cameraLookAt);
   }
 
-  // The camera's forward/right, flattened onto the tangent plane at `up` --
-  // this is what "movement relative to the camera" means on a sphere. Input
-  // is mapped against these, not the raw camera direction, so walking stays
-  // on the surface even while the camera looks slightly down at the planet.
-  getGroundBasis(up: Vector3, outForward: Vector3, outRight: Vector3): void {
+  // The camera's forward/right, flattened onto the floor plane -- this is
+  // what "movement relative to the camera" means on flat ground. Input is
+  // mapped against these, not the raw camera direction, so looking slightly
+  // down/up doesn't change how fast the player moves along the floor.
+  getGroundBasis(outForward: Vector3, outRight: Vector3): void {
     this.camera.getWorldDirection(this.rawCameraForward);
-    this.upProjection.copy(up).multiplyScalar(this.rawCameraForward.dot(up));
-    outForward.copy(this.rawCameraForward).sub(this.upProjection);
+    outForward.set(this.rawCameraForward.x, 0, this.rawCameraForward.z);
     if (outForward.lengthSq() < 1e-6) {
       // Looking straight down/up (rare, e.g. right after a reset): fall back
       // to the last known backward direction rather than producing NaNs.
       outForward.copy(this.backward).multiplyScalar(-1);
     }
     outForward.normalize();
-    outRight.crossVectors(outForward, up).normalize();
+    outRight.crossVectors(outForward, UP).normalize();
   }
 
   render(): void {

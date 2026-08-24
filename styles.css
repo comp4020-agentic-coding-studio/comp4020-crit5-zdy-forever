@@ -141,36 +141,6 @@ main {
   }
 }
 
-.dialogue {
-  position: absolute;
-  left: 50%;
-  bottom: calc(3rem + var(--safe-bottom));
-  z-index: 5;
-  max-width: min(32rem, 86vw);
-  padding: 0.9rem 1.3rem;
-  border-radius: 0.5rem;
-  background: rgb(3 3 4 / 72%);
-  color: var(--ink);
-  font-size: clamp(0.9rem, 2.4vw, 1.05rem);
-  text-align: center;
-  transform: translate(-50%, 0);
-}
-
-.dialogue:not([hidden]) {
-  display: block;
-}
-
-/* The joystick only ever shows on coarse-pointer (touch) devices, and it
-   occupies the bottom-left corner -- a bottom-centred dialogue box there
-   would overlap it on a narrow phone, so touch devices get the dialogue up
-   top instead, clear of the control. */
-@media (pointer: coarse) {
-  .dialogue {
-    top: calc(2rem + var(--safe-top));
-    bottom: auto;
-  }
-}
-
 .joystick {
   position: absolute;
   left: calc(2rem + var(--safe-left));

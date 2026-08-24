@@ -1,48 +1,64 @@
-import { Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import {
-  checkGhostCollision,
-  checkRocketReached,
-  transition,
-} from "../src/game/GameState.ts";
+import { applyDarknessPenalty, checkExitReached, checkGhostCaught, isIllegalMovement } from "../src/game/GameRules.ts";
+import { transition } from "../src/game/GameState.ts";
 
 // Pure game rules -- no rendering, no DOM, no jsdom. This is the crit spec's
-// "one rule of the game has a focused automated test" line.
-describe("ghost collision ends the game", () => {
-  const collisionRadius = 1.1;
-
-  it("given the player is within the collision radius, the game is lost", () => {
-    const player = new Vector3(0, 0, 0);
-    const ghost = new Vector3(0.5, 0, 0);
-    expect(checkGhostCollision(player, ghost, collisionRadius)).toBe(true);
-    expect(transition("playing", { type: "ghostCollision" })).toBe("lost");
+// "one rule of the game has a focused automated test" line: moving while the
+// lights are out is the one rule the whole game hangs off.
+describe("moving during darkness brings the ghost closer", () => {
+  it("given the lights are dark and the grace period has passed, moving decreases ghostDistance", () => {
+    const next = applyDarknessPenalty(20, "dark", 1, 1, 1, 5);
+    expect(next).toBeLessThan(20);
   });
 
-  it("given the player is just outside the collision radius, the game continues", () => {
-    const player = new Vector3(0, 0, 0);
-    const ghost = new Vector3(1.2, 0, 0);
-    expect(checkGhostCollision(player, ghost, collisionRadius)).toBe(false);
+  it("given the lights are dark, standing still leaves ghostDistance unchanged", () => {
+    const next = applyDarknessPenalty(20, "dark", 0, 1, 1, 5);
+    expect(next).toBe(20);
   });
 
-  it("a collision only ends the game while it's actually being played", () => {
-    expect(transition("won", { type: "ghostCollision" })).toBe("won");
-    expect(transition("lost", { type: "ghostCollision" })).toBe("lost");
+  it("given the lights are on, moving never counts as illegal", () => {
+    expect(isIllegalMovement("on", 1, 1)).toBe(false);
+  });
+
+  it("moving within the reaction grace period is not punished", () => {
+    expect(isIllegalMovement("dark", 1, 0.05)).toBe(false);
+    const next = applyDarknessPenalty(20, "dark", 1, 0.05, 1, 5);
+    expect(next).toBe(20);
+  });
+
+  it("ghostDistance never drops below zero", () => {
+    const next = applyDarknessPenalty(1, "dark", 1, 1, 1, 5);
+    expect(next).toBe(0);
   });
 });
 
-describe("reaching the rocket wins the game", () => {
-  const triggerRadius = 3;
+describe("the ghost reaching the loss threshold ends the game", () => {
+  const lossThreshold = 3;
 
-  it("given the player is within the trigger radius, the game is won", () => {
-    const player = new Vector3(10, 0, 0);
-    const rocket = new Vector3(11, 0, 0);
-    expect(checkRocketReached(player, rocket, triggerRadius)).toBe(true);
-    expect(transition("playing", { type: "rocketReached" })).toBe("won");
+  it("given ghostDistance is at or below the threshold, the game is lost", () => {
+    expect(checkGhostCaught(2, lossThreshold)).toBe(true);
+    expect(transition("playing", { type: "ghostCaught" })).toBe("lost");
+  });
+
+  it("given ghostDistance is above the threshold, the game continues", () => {
+    expect(checkGhostCaught(5, lossThreshold)).toBe(false);
+  });
+
+  it("a catch only ends the game while it's actually being played", () => {
+    expect(transition("won", { type: "ghostCaught" })).toBe("won");
+    expect(transition("lost", { type: "ghostCaught" })).toBe("lost");
+  });
+});
+
+describe("reaching the exit wins the game", () => {
+  const triggerRadius = 2.5;
+
+  it("given the player is within the trigger radius of the exit, the game is won", () => {
+    expect(checkExitReached(68, 70, triggerRadius)).toBe(true);
+    expect(transition("playing", { type: "exitReached" })).toBe("won");
   });
 
   it("given the player is outside the trigger radius, the game continues", () => {
-    const player = new Vector3(10, 0, 0);
-    const rocket = new Vector3(15, 0, 0);
-    expect(checkRocketReached(player, rocket, triggerRadius)).toBe(false);
+    expect(checkExitReached(60, 70, triggerRadius)).toBe(false);
   });
 });

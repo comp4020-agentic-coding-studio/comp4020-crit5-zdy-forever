@@ -1,10 +1,9 @@
 import { Vector3 } from "three";
 import { AudioManager } from "./src/audio/AudioManager.ts";
-import { DREAD_MEDIUM_DISTANCE, DREAD_NEAR_DISTANCE } from "./src/game/Constants.ts";
+import { GHOST_INITIAL_DISTANCE, GHOST_LOSS_THRESHOLD } from "./src/game/Constants.ts";
 import { Game } from "./src/game/Game.ts";
 import { InputManager } from "./src/input/InputManager.ts";
 import { SceneManager } from "./src/render/SceneManager.ts";
-import { DialogueUI } from "./src/ui/DialogueUI.ts";
 import { EndScreenUI } from "./src/ui/EndScreen.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -13,7 +12,6 @@ const startButton = document.querySelector<HTMLButtonElement>("#start-button");
 const vignetteElement = document.querySelector<HTMLElement>("#vignette");
 const joystickRoot = document.querySelector<HTMLElement>("#joystick");
 const joystickKnob = document.querySelector<HTMLElement>(".joystick-knob");
-const dialogueElement = document.querySelector<HTMLElement>("#dialogue");
 const endScreenElement = document.querySelector<HTMLElement>("#end-screen");
 const endMessageElement = document.querySelector<HTMLElement>("#end-message");
 const restartButton = document.querySelector<HTMLButtonElement>("#restart-button");
@@ -25,12 +23,11 @@ if (
   !vignetteElement ||
   !joystickRoot ||
   !joystickKnob ||
-  !dialogueElement ||
   !endScreenElement ||
   !endMessageElement ||
   !restartButton
 ) {
-  throw new Error("LAST SIGNAL: expected page structure is missing");
+  throw new Error("DON'T MOVE: expected page structure is missing");
 }
 
 // Narrowed local so the animation-frame closure below (a function
@@ -42,11 +39,9 @@ const game = new Game();
 const inputManager = new InputManager(joystickRoot, joystickKnob);
 const sceneManager = new SceneManager(canvas);
 const audioManager = new AudioManager();
-const dialogueUI = new DialogueUI(dialogueElement);
 const endScreenUI = new EndScreenUI(endScreenElement, endMessageElement, restartButton, () => {
   game.reset();
   sceneManager.resetCamera();
-  sceneManager.resetRocket();
 });
 
 function resize(): void {
@@ -55,8 +50,8 @@ function resize(): void {
 window.addEventListener("resize", resize);
 resize();
 
-sceneManager.syncPlayer(game.player.position, game.player.up);
-sceneManager.updateCamera(game.player.position, game.player.up, game.player.forward, 1);
+sceneManager.syncPlayer(game.player.position);
+sceneManager.updateCamera(game.player.position, game.player.forward, 1);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -64,7 +59,10 @@ function clamp(value: number, min: number, max: number): number {
 
 const groundForward = new Vector3();
 const groundRight = new Vector3();
+const ghostPosition = new Vector3();
 let lastTime = performance.now();
+let lossStingerPlayed = false;
+let winStingerPlayed = false;
 
 function tick(now: number): void {
   // Clamped so a backgrounded/throttled tab doesn't produce one huge delta
@@ -72,21 +70,31 @@ function tick(now: number): void {
   const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
-  const up = game.player.up;
-  sceneManager.getGroundBasis(up, groundForward, groundRight);
+  sceneManager.getGroundBasis(groundForward, groundRight);
   game.update(inputManager.read(), groundForward, groundRight, deltaSeconds);
-  dialogueUI.sync(game.dialogueText);
+
   if (game.endScreenText) endScreenUI.show(game.endScreenText);
+  if (game.phase === "playing") {
+    lossStingerPlayed = false;
+    winStingerPlayed = false;
+  } else if (game.phase === "lost" && !lossStingerPlayed) {
+    lossStingerPlayed = true;
+    audioManager.playLossStinger();
+  } else if (game.phase === "won" && !winStingerPlayed) {
+    winStingerPlayed = true;
+    audioManager.playWinStinger();
+  }
 
-  const dread = 1 - clamp((game.ghostDistance - DREAD_NEAR_DISTANCE) / (DREAD_MEDIUM_DISTANCE - DREAD_NEAR_DISTANCE), 0, 1);
-  vignette.style.opacity = String(dread * 0.6);
-  sceneManager.setDread(dread);
-  audioManager.setGhostDistance(game.ghostDistance);
+  const danger = 1 - clamp((game.ghost.distance - GHOST_LOSS_THRESHOLD) / (GHOST_INITIAL_DISTANCE - GHOST_LOSS_THRESHOLD), 0, 1);
+  vignette.style.opacity = String(danger * 0.6);
+  sceneManager.setDread(danger);
+  audioManager.sync(danger, game.illegalMovementNow);
 
-  sceneManager.syncPlayer(game.player.position, game.player.up);
-  sceneManager.syncGhost(game.ghost.position, game.ghost.up);
-  sceneManager.updateRocket(game.phase === "won", deltaSeconds);
-  sceneManager.updateCamera(game.player.position, game.player.up, game.player.forward, deltaSeconds);
+  sceneManager.syncPlayer(game.player.position);
+  game.ghost.positionBehind(game.player.position.z, ghostPosition);
+  sceneManager.syncGhost(ghostPosition);
+  sceneManager.updateLights(game.light.intensity, deltaSeconds);
+  sceneManager.updateCamera(game.player.position, game.player.forward, deltaSeconds);
   sceneManager.render();
 
   requestAnimationFrame(tick);
