@@ -68,13 +68,39 @@ movement vector, so the player logic never knows which input produced it.
    the jump later.
    [`de6971b`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-zdy-forever/commit/de6971b)
 
+5. **The chase camera was anchored to instantaneous input, not to an actual
+   heading.** `Player.forward` (what the camera sits behind) was being
+   snapped, every single frame, to the exact tangent of whatever direction
+   was currently pressed — including a pure strafe or a pure backward tap.
+   Since the camera sits directly behind `forward`, one frame of A/D or S
+   could flip it by up to 180°. The real playtest below caught this;
+   reasoning through the boundary case by hand afterward (the recursive
+   `F_{n+1} = cross(F_n, up)` relation holding D produces) confirmed it was a
+   full 90° snap per frame, not a rounding artifact. Fixed by leaving
+   position movement exactly as camera-relative input says, but making
+   `forward` turn toward the movement direction at a capped rate
+   (`PLAYER_TURN_RATE_RADIANS_PER_SECOND`) instead of snapping to it, so a
+   quick tap or a strafe hold no longer whips the camera around.
+   [`9bb4d46`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-zdy-forever/commit/9bb4d46)
+
 ## Playtesting
 
-Not yet filled in. The build reached a genuinely playable end-to-end state
-without a real human playtest — this environment has no browser-automation
-tool, so every visual/experiential property above (movement feel, camera
-framing, whether the horror actually lands, whether a stranger can finish in
-2–5 minutes with zero instructions) has only been verified by code review and
-`pnpm check`'s automated suite, never by actually playing it. This section
-gets filled in with a real observation and the correction made in response
-once that playtest happens — not before.
+Real playtest, first round, reported directly by the person playing it (not
+inferred or assumed):
+
+- **Too dark.** The two global lights (`AmbientLight`, `HemisphereLight`) were
+  tuned for mood over legibility — raised both (and lightened their colors)
+  so the terrain reads while moving, without touching the point lights that
+  carry the actual horror beats (ghost, beacons, rocket).
+- **A/D and S didn't move correctly** — described as needing "无极移动"
+  (smooth, continuous movement) rather than what was shipped. Root cause and
+  fix are moment 5 above: `forward` snapping instantly to input direction
+  every frame, which whipped the follow camera around on any strafe or
+  backward step. Fixed by rate-limiting how fast `forward` turns to catch up
+  with actual movement, independent of the (unlimited, instant)
+  camera-relative position movement itself.
+
+Both fixed in [`9bb4d46`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-zdy-forever/commit/9bb4d46)
+and verified with `pnpm check` (24/24 green). Not yet re-confirmed by a second
+human playtest pass — that's the next thing to do, not something to assume
+fixed from code review alone.
