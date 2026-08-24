@@ -20,6 +20,9 @@ export const NPC_INTERACTION_RADIUS = 3.5;
 // readable at a glance rather than paced for a click.
 export const NPC_LINE_DURATION_SECONDS = 3.2;
 export const ROCKET_TRIGGER_RADIUS = 3;
+// How fast the rocket mesh rises once the win condition lands, in units per
+// second -- purely cosmetic, not a gameplay rule.
+export const ROCKET_LAUNCH_SPEED = 4.5;
 
 export const JOYSTICK_OUTER_RADIUS_PX = 62;
 export const JOYSTICK_KNOB_RADIUS_PX = 24;

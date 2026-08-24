@@ -3,6 +3,7 @@ import {
   CapsuleGeometry,
   Color,
   ConeGeometry,
+  CylinderGeometry,
   FogExp2,
   HemisphereLight,
   IcosahedronGeometry,
@@ -11,6 +12,7 @@ import {
   PerspectiveCamera,
   PointLight,
   Scene,
+  SphereGeometry,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -20,8 +22,9 @@ import {
   CAMERA_LOOK_HEIGHT,
   PLANET_RADIUS,
   PLAYER_HEIGHT,
+  ROCKET_LAUNCH_SPEED,
 } from "../game/Constants.ts";
-import { NPCS } from "../game/World.ts";
+import { BEACON_POSITIONS, NPCS, RADIO_TOWER_POSITION, ROCKET_POSITION, SHELTER_POSITION } from "../game/World.ts";
 
 const MESH_UP = new Vector3(0, 1, 0);
 
@@ -35,6 +38,9 @@ export class SceneManager {
   private readonly playerMesh: Mesh;
   private readonly ghostMesh: Mesh;
   private readonly ghostLight: PointLight;
+  private readonly rocketMesh: Mesh;
+  private readonly rocketUp: Vector3;
+  private rocketAltitude = 0;
 
   // Carried frame-to-frame so the camera eases toward its ideal position
   // instead of snapping to it every frame.
@@ -93,6 +99,9 @@ export class SceneManager {
     this.scene.add(this.ghostLight);
 
     this.buildNpcs();
+    const rocket = this.buildLandmarks();
+    this.rocketMesh = rocket.mesh;
+    this.rocketUp = rocket.up;
   }
 
   // NPCs never move, so their meshes/lights are built once here rather than
@@ -114,6 +123,64 @@ export class SceneManager {
       light.position.copy(npc.position).addScaledVector(up, 1.6);
       this.scene.add(light);
     }
+  }
+
+  // The static environmental landmarks that lead the player from the NPCs
+  // toward the rocket: a radio tower, a damaged shelter, a chain of red
+  // beacons, and the rocket itself. Returns the rocket's mesh/up so the
+  // constructor can keep them for the launch animation.
+  private buildLandmarks(): { mesh: Mesh; up: Vector3 } {
+    const up = new Vector3();
+    const darkMetal = new MeshStandardMaterial({ color: 0x1c1d21, roughness: 0.9, flatShading: true });
+
+    up.copy(RADIO_TOWER_POSITION).normalize();
+    const tower = new Mesh(new CylinderGeometry(0.15, 0.3, 7, 5), darkMetal);
+    tower.position.copy(RADIO_TOWER_POSITION).addScaledVector(up, 3.5);
+    tower.quaternion.setFromUnitVectors(MESH_UP, up);
+    this.scene.add(tower);
+
+    up.copy(SHELTER_POSITION).normalize();
+    const shelter = new Mesh(
+      new SphereGeometry(1.6, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2),
+      new MeshStandardMaterial({ color: 0x24252b, roughness: 1, flatShading: true }),
+    );
+    shelter.position.copy(SHELTER_POSITION);
+    shelter.quaternion.setFromUnitVectors(MESH_UP, up);
+    this.scene.add(shelter);
+
+    const beaconMaterial = new MeshStandardMaterial({
+      color: 0x4a1414,
+      emissive: 0xaa2222,
+      emissiveIntensity: 1.2,
+      roughness: 0.6,
+      flatShading: true,
+    });
+    for (const beaconPosition of BEACON_POSITIONS) {
+      up.copy(beaconPosition).normalize();
+
+      const beacon = new Mesh(new ConeGeometry(0.4, 1.4, 5), beaconMaterial);
+      beacon.position.copy(beaconPosition).addScaledVector(up, 0.7);
+      beacon.quaternion.setFromUnitVectors(MESH_UP, up);
+      this.scene.add(beacon);
+
+      const light = new PointLight(0xff3b30, 5, 8, 2);
+      light.position.copy(beaconPosition).addScaledVector(up, 1.6);
+      this.scene.add(light);
+    }
+
+    const rocketUp = ROCKET_POSITION.clone().normalize();
+    const rocketMesh = new Mesh(
+      new ConeGeometry(0.9, 3.2, 8),
+      new MeshStandardMaterial({ color: 0xd7dbe2, roughness: 0.5, flatShading: true }),
+    );
+    rocketMesh.quaternion.setFromUnitVectors(MESH_UP, rocketUp);
+    this.scene.add(rocketMesh);
+
+    const rocketLight = new PointLight(0xffffff, 5, 10, 2);
+    rocketLight.position.copy(ROCKET_POSITION).addScaledVector(rocketUp, 2.5);
+    this.scene.add(rocketLight);
+
+    return { mesh: rocketMesh, up: rocketUp };
   }
 
   resize(width: number, height: number): void {
@@ -138,6 +205,17 @@ export class SceneManager {
   // back to spawn and a smooth follow would sweep across the whole planet.
   resetCamera(): void {
     this.cameraInitialized = false;
+  }
+
+  // Called every frame regardless of phase, so the rocket sits at rest on
+  // the pad until `launching` (the win condition landing) starts it rising.
+  updateRocket(launching: boolean, deltaSeconds: number): void {
+    if (launching) this.rocketAltitude += deltaSeconds * ROCKET_LAUNCH_SPEED;
+    this.rocketMesh.position.copy(ROCKET_POSITION).addScaledVector(this.rocketUp, 1.6 + this.rocketAltitude);
+  }
+
+  resetRocket(): void {
+    this.rocketAltitude = 0;
   }
 
   updateCamera(playerPosition: Vector3, up: Vector3, forward: Vector3, deltaSeconds: number): void {

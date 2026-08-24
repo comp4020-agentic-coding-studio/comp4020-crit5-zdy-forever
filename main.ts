@@ -36,6 +36,7 @@ const dialogueUI = new DialogueUI(dialogueElement);
 const endScreenUI = new EndScreenUI(endScreenElement, endMessageElement, restartButton, () => {
   game.reset();
   sceneManager.resetCamera();
+  sceneManager.resetRocket();
 });
 
 function resize(): void {
@@ -65,6 +66,7 @@ function tick(now: number): void {
 
   sceneManager.syncPlayer(game.player.position, game.player.up);
   sceneManager.syncGhost(game.ghost.position, game.ghost.up);
+  sceneManager.updateRocket(game.phase === "won", deltaSeconds);
   sceneManager.updateCamera(game.player.position, game.player.up, game.player.forward, deltaSeconds);
   sceneManager.render();
 

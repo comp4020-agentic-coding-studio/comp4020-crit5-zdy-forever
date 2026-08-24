@@ -1,10 +1,16 @@
 import { Vector3 } from "three";
-import { GHOST_COLLISION_RADIUS, NPC_INTERACTION_RADIUS, NPC_LINE_DURATION_SECONDS, END_SCREEN_DELAY_SECONDS } from "./Constants.ts";
+import {
+  END_SCREEN_DELAY_SECONDS,
+  GHOST_COLLISION_RADIUS,
+  NPC_INTERACTION_RADIUS,
+  NPC_LINE_DURATION_SECONDS,
+  ROCKET_TRIGGER_RADIUS,
+} from "./Constants.ts";
 import { Ghost } from "./Ghost.ts";
-import { checkGhostCollision, transition, type Phase } from "./GameState.ts";
+import { checkGhostCollision, checkRocketReached, transition, type Phase } from "./GameState.ts";
 import { NPC } from "./NPC.ts";
 import { Player } from "./Player.ts";
-import { NPCS, SPAWN_FORWARD, SPAWN_POINT } from "./World.ts";
+import { NPCS, ROCKET_POSITION, SPAWN_FORWARD, SPAWN_POINT } from "./World.ts";
 
 export interface Movement {
   readonly x: number;
@@ -12,8 +18,8 @@ export interface Movement {
 }
 
 // Orchestrates the pure rules (GameState) and the entities (Player, NPCs,
-// Ghost, and later Rocket) against real input and a real clock. Nothing in
-// here imports Three.js -- the render layer reads positions back out of it.
+// Ghost, Rocket) against real input and a real clock. Nothing in here
+// imports Three.js -- the render layer reads positions back out of it.
 export class Game {
   phase: Phase = "start";
   readonly player: Player;
@@ -41,6 +47,7 @@ export class Game {
   // null until a win/loss has landed AND its short reveal delay has passed.
   get endScreenText(): string | null {
     if (this.phase === "lost" && this.endScreenTimer <= 0) return "FOUND";
+    if (this.phase === "won" && this.endScreenTimer <= 0) return "ESCAPED";
     return null;
   }
 
@@ -76,6 +83,9 @@ export class Game {
 
     if (checkGhostCollision(this.player.position, this.ghost.position, GHOST_COLLISION_RADIUS)) {
       this.phase = transition(this.phase, { type: "ghostCollision" });
+      this.endScreenTimer = END_SCREEN_DELAY_SECONDS;
+    } else if (checkRocketReached(this.player.position, ROCKET_POSITION, ROCKET_TRIGGER_RADIUS)) {
+      this.phase = transition(this.phase, { type: "rocketReached" });
       this.endScreenTimer = END_SCREEN_DELAY_SECONDS;
     }
   }
