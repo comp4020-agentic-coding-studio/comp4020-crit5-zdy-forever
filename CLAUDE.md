@@ -51,6 +51,18 @@ transition *individually* fires isn't enough --- check what the combination
 looks like against the clock (`getComputedStyle` sampled every frame, not
 just before/after).
 
+## Vite doesn't execute JS at build time
+
+`dist/index.html` after `pnpm build` is the literal markup authored in
+`index.html` --- only `<script>`/`<link>` src attributes get rewritten. A
+jsdom-based spec test that parses the built HTML (e.g. checking for a
+focusable control, a heading, a landmark) only ever sees what was
+hand-authored there; anything a runtime script creates or reveals later is
+invisible to it. When a spec test needs an element to exist in the shipped
+page, author it directly in `index.html` (hidden by default if it's not meant
+to show immediately) and have runtime code toggle/populate it, rather than
+building that DOM from a script.
+
 ## The checks
 
 `pnpm check` runs them, and `pnpm check:evidence` is the extra gate before you
