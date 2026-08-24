@@ -4,6 +4,13 @@
 export const PLANET_RADIUS = 18;
 export const PLAYER_HEIGHT = 0.9;
 export const PLAYER_SPEED = 6.5;
+// How fast the player's facing -- and therefore the chase camera anchored
+// behind it -- turns to catch up with the actual movement direction, in
+// radians/second. Deliberately far slower than "instant": position always
+// moves exactly where input says (camera-relative), but facing only slews
+// toward that direction over time, so tapping S or holding A/D translates
+// the player without snapping the camera around behind them every frame.
+export const PLAYER_TURN_RATE_RADIANS_PER_SECOND = Math.PI;
 
 export const GHOST_SPEED = 5.2; // ~80% of PLAYER_SPEED
 export const GHOST_WANDER_SPEED_FACTOR = 0.4;

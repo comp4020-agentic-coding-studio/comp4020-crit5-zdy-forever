@@ -73,8 +73,8 @@ export class SceneManager {
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    this.scene.add(new AmbientLight(0x1a1a26, 0.6));
-    this.scene.add(new HemisphereLight(0x1c2436, 0x050506, 0.5));
+    this.scene.add(new AmbientLight(0x2a2a3a, 1.1));
+    this.scene.add(new HemisphereLight(0x33415c, 0x0a0a10, 0.85));
 
     const planet = new Mesh(
       new IcosahedronGeometry(PLANET_RADIUS, 2),
