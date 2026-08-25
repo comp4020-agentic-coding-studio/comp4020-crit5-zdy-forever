@@ -63,10 +63,20 @@ what was already proven to work, not by picking arbitrarily:
 
 ## Architecture
 
-- `src/game/Corridor.ts` — static layout: spawn point, exit position, the one
-  wider chamber, ceiling-fixture spacing, and which fixture is the
-  permanently-flickering "damaged" one (cosmetic only, not tied to any game
-  state).
+- `src/game/Maze.ts` — the baked layout: a fixed 8×8 grid (adjacency stored as
+  per-row bit-strings plus an ASCII-art comment for visual sanity-checking),
+  derived `SPAWN_POINT`/`SPAWN_FORWARD`/`EXIT_POSITION`/`EXIT_DOOR_AXIS`, a
+  per-cell ceiling-fixture position list, and `DAMAGED_FIXTURE_INDICES` (three
+  permanently-flickering fixtures near early decoy branches — cosmetic only,
+  not tied to any game state). Exports the shared `openingsOf(row, col)`
+  helper so "which side of a cell is a real wall" is derived once and can't
+  disagree between collision and render.
+- `src/game/MazeGraph.ts` — everything derived from `Maze.ts` at module load:
+  per-cell collision rects (`isPositionLegal`), `cellOf(position)`, a
+  BFS-distance-from-exit table (`bfsDistanceFromExit`, `SPAWN_BFS_DISTANCE`).
+  Replaces the old corridor's linear `playerZ / corridorLength` progress with
+  a graph-topology one, since a maze's straight-line distance to the exit can
+  cut through walls a real path can't.
 - `src/game/GameRules.ts` — pure functions, no Three.js or DOM:
   `isIllegalMovement`, `applyDarknessPenalty`, `checkGhostCaught`,
   `checkExitReached`. This is what `spec/rules.test.ts` exercises directly.
@@ -74,23 +84,29 @@ what was already proven to work, not by picking arbitrarily:
   durations drawn from the progress-keyed tier; the warning phase is a
   handful of deliberate ~2 Hz pulses, not rapid flicker, so it never crosses
   into strobe territory.
-- `src/game/Ghost.ts` — a `distance` scalar and nothing else: no wander/chase
-  state machine. It only ever shrinks via `GameRules`, and it renders fixed
-  along the corridor's own centreline behind the player's current position —
-  not behind the player's facing — so turning around via the camera mechanism
-  actually reveals where it is instead of it "following" the view.
-- `src/game/Player.ts` — flat-plane movement (no more great-circle sphere
-  math, since the corridor floor is flat), keeping the turn-rate-limited
-  facing described above.
+- `src/game/Ghost.ts` — a `distance` scalar plus `positionBehind`, which walks
+  backward along `Game`'s breadcrumb trail of the player's actual world
+  positions (not a straight centreline, now that the corridor is a maze) to
+  find the point exactly `distance` units of *real path* behind the player —
+  so turning around via the camera mechanism reveals where it actually is,
+  never a ghost floating through a wall.
+- `src/game/Player.ts` — candidate-move-then-axis-separated-slide collision
+  against `MazeGraph`'s rects (try the full 2D step, then X-only, then
+  Z-only, else don't move), replacing the old single-axis corridor clamp;
+  keeps the turn-rate-limited facing described above unchanged.
 - `src/game/Game.ts` — orchestrates the above against real input and a real
-  clock; owns the darkness-elapsed bookkeeping directly and exposes
-  `illegalMovementNow` for one frame at a time so the render/audio layers can
-  cue footsteps without re-deriving the rule.
-- `src/render/SceneManager.ts` — corridor geometry, per-fixture lights driven
-  by `LightController.intensity`, an exit light independent of the cycle, and
-  the follow camera. Simpler than the sphere version: world "up" is always
-  `(0, 1, 0)` now, so the per-frame quaternion realignment the planet needed
-  is gone.
+  clock; owns the darkness-elapsed bookkeeping, the breadcrumb trail (append
+  on movement past a minimum spacing, prune from the old end past a max arc
+  length), and a high-water-mark BFS progress metric that never eases back
+  down after a wrong turn; exposes `illegalMovementNow` for one frame at a
+  time so the render/audio layers can cue footsteps without re-deriving the
+  rule.
+- `src/render/SceneManager.ts` — per-cell maze geometry (one floor/ceiling box
+  per open room footprint, one wall box per closed edge or grid boundary,
+  built from the same `openingsOf` helper as the collision model), per-fixture
+  lights driven by `LightController.intensity`, an exit light/door oriented
+  by `EXIT_DOOR_AXIS`, and the follow camera. World "up" is always
+  `(0, 1, 0)`, so no per-frame quaternion realignment is needed.
 - `src/audio/AudioManager.ts` — procedural WebAudio only, gated on the same
   start-button gesture as before: an always-on ambient hum, a heartbeat and a
   breathing layer that fade in as danger rises, footstep thumps cued by
@@ -142,6 +158,19 @@ what was already proven to work, not by picking arbitrarily:
 - A first draft of `Corridor.ts` was written with placeholder/self-importing
   content by mistake and caught immediately, before any check ran, by
   rereading it against what the rest of the module actually needed.
+- The maze conversion's first draft of `Game.seedTrail()` pushed the trail's
+  two seed points in the wrong order (`spawn` first, the far point behind it
+  last). `Ghost.positionBehind` walks backward from the trail's *last* entry
+  treating it as the player's current position — with the original order,
+  asking for the ghost's exact seeded distance (20 units) returned spawn
+  itself instead of the point 20 units behind it, a silent inversion no
+  typecheck or existing test could catch, since nothing yet exercised
+  `positionBehind` against a real trail. Caught by hand-tracing the walk
+  algebraically against the plan's own verification requirement ("confirm the
+  trail-prune math can't strand `positionBehind` short of the 20 units it
+  needs"), fixed by swapping the push order, and re-confirmed with a temporary
+  diagnostic exercising both the freshly-seeded trail and one built by
+  simulating 300 frames of forward movement through the maze.
 
 ## Playtesting
 
@@ -168,5 +197,82 @@ the *second* dark period (roughly the corridor's midpoint) rather than
 reaching the exit, while a player who stops moving during dark and continues
 through on/warning finishes in around 50 seconds and passes through several
 full cycles along the way — enough for the randomised timing to actually read
-as unpredictable. Verified with `pnpm check` (29/29 green). Not yet
-re-confirmed by a second human playtest pass.
+as unpredictable. Verified with `pnpm check` (29/29 green).
+
+Real playtest, second round, reported directly by the person playing it —
+this rejected the length fix above outright rather than confirming it:
+
+> 你不要搞一个直路啊 搞个迷宫
+> ("don't make it a straight path — make it a maze")
+
+Lengthening a straight corridor was the wrong kind of fix: it changed *how
+long* the mistake-free path was, not *whether wrong turns exist at all*, so
+"hold the move key down" was still always the right strategy, just for
+longer. Rather than guess at what "a maze" should mean, the scope was put to
+the player directly via `AskUserQuestion`; they chose a **true branching maze
+with real dead ends and genuine wrong-turn risk, using a fixed/baked layout**
+(not regenerated per playthrough, so the layout can be hand-audited and
+reasoned about once rather than trusted to a generator on every run).
+
+Replaced the straight corridor with an 8×8 grid maze, generated once by a
+one-off, never-shipped script (`scripts/generate-maze.ts`) and baked into
+`src/game/Maze.ts`: a seeded recursive-backtracker produces a perfect maze
+(spanning tree, 63 open edges, zero cycles, so every dead end is genuine —
+there are no loops to accidentally wander back out of), with spawn and exit
+placed at the tree's diameter endpoints (successful run:
+`seed=1372 attempts=36 pathLength=38 leaves=10 spawn=[1,7] exit=[0,0]`).
+Diameter endpoints are always degree-1, which is what lets `SPAWN_FORWARD`
+and the exit door's orientation both derive from "the direction of that
+cell's one opening" instead of being hardcoded to an axis.
+
+This forced real architectural changes rather than a tuning pass: collision
+went from a single-axis clamp against two side walls to per-cell rects (open
+sides extend to the shared midpoint with the neighbouring cell, closed sides
+stop `PLAYER_COLLISION_RADIUS` short of the wall) checked via
+axis-separated slide movement so corners don't stop the player dead; the
+progress metric went from linear `playerZ / corridorLength` to a BFS
+graph-distance high-water mark (`MazeGraph.bfsDistanceFromExit`, never
+regressing on a backtrack, so wandering into a dead end and returning can't
+soften the difficulty tier back down); and the ghost's rendered position went
+from "fixed distance behind the player along the corridor's centreline" to
+walking backward along a pruned breadcrumb trail of the player's actual
+world positions, so it always sits on ground the player genuinely walked
+through the maze rather than cutting through a wall on a turn. The one rule
+`spec/rules.test.ts` exercises directly (`applyDarknessPenalty`,
+`checkGhostCaught`) is untouched; only `checkExitReached`'s signature moved
+from a corridor-Z comparison to a precomputed Euclidean distance, updated in
+that test file accordingly.
+
+**Fairness trace, maze version.** The true (only, since it's a spanning
+tree) spawn-to-exit path is 38 edges — longer than the pre-generation
+estimate this was originally planned around (24–28), corrected here rather
+than left stale — i.e. `SPAWN_BFS_DISTANCE = 38`. At `MAZE_CELL_SIZE = 6.5`
+and `PLAYER_SPEED = 4.2`, a mistake-free run covers `38 × 6.5 = 247` units of
+travel, roughly 59 seconds if never slowed by a turn — comparable to the
+150-length corridor's ~50s target, and long enough to span several full
+light cycles across the early/mid/late tiers rather than one or two. The
+maze adds a risk layer the straight corridor never had: taking a wrong turn
+while lit costs no `ghostDistance` directly (`isIllegalMovement` only
+triggers in `dark`), but it adds real distance and time, which raises
+exposure to more dark cycles before reaching the exit — a wrong turn is
+punished by *more chances to fail the real rule*, not by a separate penalty.
+10 of the maze's 64 cells are dead-end leaves (fewer than the
+pre-generation ~12–16 estimate, also corrected here); three of them, near
+early junctions where a wrong turn is cheapest to recover from, carry the
+always-flickering `DAMAGED_FIXTURE_INDICES` cosmetic as a sightline cue.
+
+Explicitly not fabricated, same as the corridor's own first playtesting
+entry above: whether the maze reads as navigable without on-screen
+instructions, whether the decoy branches land as intended, whether real
+playtime lands near the ~59s estimate, and how cornering feels with the
+turn-rate-limited camera *and* the new axis-separated slide collision. What
+was verified instead — computationally, not assumed — before writing this
+entry: `SPAWN_BFS_DISTANCE` (38) matches the generator's own reported
+`pathLength`; `SPAWN_FORWARD`/`EXIT_DOOR_AXIS` point along each endpoint's
+one real opening; a room centre, a passage midpoint, and a room's inner
+corner (offset `PLAYER_COLLISION_RADIUS` from its wall stop) are all legal
+positions, while a point just past a closed edge's wall stop is not; and
+`Ghost.positionBehind` against a freshly-seeded and then a walked trail
+returns a point exactly `ghost.distance` behind the player, never at or past
+it. `pnpm check` is green (29/29). Stopping here for a real human playtest
+pass before writing anything further in this section.
