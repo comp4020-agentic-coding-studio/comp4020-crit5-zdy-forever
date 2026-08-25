@@ -12,7 +12,11 @@ export const PLAYER_SPEED = 4.2;
 // Carried over unchanged from LAST SIGNAL's playtest fix.
 export const PLAYER_TURN_RATE_RADIANS_PER_SECOND = Math.PI;
 
-export const CORRIDOR_LENGTH = 70;
+// Long enough that holding the move key down the whole way runs through
+// several full light cycles, not just one -- see PROCESS.md's fairness trace
+// for why 70 let a blind "just hold W" run finish before the mechanic ever
+// mattered.
+export const CORRIDOR_LENGTH = 150;
 export const CORRIDOR_HALF_WIDTH = 2.2;
 export const CORRIDOR_HEIGHT = 3.4;
 export const CORRIDOR_SIDE_MARGIN = 0.3;

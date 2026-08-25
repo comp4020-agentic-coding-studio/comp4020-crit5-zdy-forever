@@ -145,6 +145,28 @@ what was already proven to work, not by picking arbitrarily:
 
 ## Playtesting
 
-Not yet done. No result is recorded here because none has happened —
-this section stays blank until a real person has actually played a full
-round, same standard as LAST SIGNAL's playtest section before it.
+Real playtest, first round, reported directly by the person playing it:
+
+- **Too easy — a straight corridor, holding the move key down the whole way
+  reached the exit, and the light cycle was never really experienced.** Also
+  flagged: the lights should go out at unpredictable times.
+
+Root cause, traced by hand rather than assumed: at `CORRIDOR_LENGTH = 70` and
+`PLAYER_SPEED = 4.2`, a full run takes about 16–17 seconds — short enough that
+a player who never stops moving crosses the whole corridor within roughly one
+light cycle plus a partial second one. The one dark period they pass through
+costs at most ~13 units against a 17-unit margin, leaving several units to
+spare, and the run typically finishes during the following on/warning phase
+before a second dark period can add more risk. The randomised duration
+(`pickDuration`) was already there — the level was simply too short for more
+than one or two cycles to occur, so the variation was never visible.
+
+Fixed by lengthening `CORRIDOR_LENGTH` to 150 (`src/game/Constants.ts`),
+leaving speed and cycle timings alone. Re-traced by hand at the new length: a
+player who never stops for darkness now runs out of margin partway through
+the *second* dark period (roughly the corridor's midpoint) rather than
+reaching the exit, while a player who stops moving during dark and continues
+through on/warning finishes in around 50 seconds and passes through several
+full cycles along the way — enough for the randomised timing to actually read
+as unpredictable. Verified with `pnpm check` (29/29 green). Not yet
+re-confirmed by a second human playtest pass.
