@@ -32,6 +32,6 @@ export function checkGhostCaught(ghostDistance: number, lossThreshold: number): 
   return ghostDistance <= lossThreshold;
 }
 
-export function checkExitReached(playerZ: number, exitZ: number, triggerRadius: number): boolean {
-  return Math.abs(playerZ - exitZ) <= triggerRadius;
+export function checkExitReached(distanceToExit: number, triggerRadius: number): boolean {
+  return distanceToExit <= triggerRadius;
 }

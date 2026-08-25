@@ -23,18 +23,22 @@ import {
   CAMERA_HEIGHT,
   CAMERA_LOOK_HEIGHT,
   CORRIDOR_HEIGHT,
-  CORRIDOR_LENGTH,
+  MAZE_CELL_SIZE,
+  MAZE_CORRIDOR_HALF_WIDTH,
   PLAYER_HEIGHT,
 } from "../game/Constants.ts";
 import {
-  CHAMBER_CENTER_Z,
-  CHAMBER_HALF_LENGTH,
-  CHAMBER_HALF_WIDTH,
-  DAMAGED_FIXTURE_INDEX,
+  DAMAGED_FIXTURE_INDICES,
+  EXIT_DOOR_AXIS,
   EXIT_POSITION,
   LIGHT_FIXTURE_POSITIONS,
-  corridorHalfWidthAt,
-} from "../game/Corridor.ts";
+  MAZE_COLS,
+  MAZE_ROWS,
+  cellCenter,
+  isHorizontalOpen,
+  isVerticalOpen,
+  openingsOf,
+} from "../game/Maze.ts";
 
 const UP = new Vector3(0, 1, 0);
 const AMBIENT_BASE_INTENSITY = 1.1;
@@ -44,6 +48,8 @@ const PLAYER_MESH_HEIGHT = PLAYER_HEIGHT * 1.5;
 const GHOST_CAPSULE_RADIUS = 0.3;
 const GHOST_CAPSULE_LENGTH = 2.2;
 const GHOST_MESH_HALF_HEIGHT = GHOST_CAPSULE_LENGTH / 2 + GHOST_CAPSULE_RADIUS;
+const HALF_PITCH = MAZE_CELL_SIZE / 2;
+const WALL_THICKNESS = 0.2;
 
 // Builds the Three.js scene once and exposes small, focused update methods
 // so the pure game layer (src/game) never has to import Three.js itself.
@@ -92,7 +98,7 @@ export class SceneManager {
     this.hemisphereLight = new HemisphereLight(0x33415c, 0x0a0a10, HEMISPHERE_BASE_INTENSITY);
     this.scene.add(this.hemisphereLight);
 
-    this.buildCorridor();
+    this.buildMaze();
     this.buildFixtures();
     this.buildExit();
 
@@ -118,53 +124,85 @@ export class SceneManager {
     this.scene.add(this.ghostMesh);
   }
 
-  // Segmented into three runs (before/through/after the wider chamber) so
-  // the chamber actually reads as wider rather than being a uniform tube.
-  private buildCorridor(): void {
+  // One floor+ceiling pair per cell (its footprint extended flush to the
+  // cell boundary on every open side, stopping at MAZE_CORRIDOR_HALF_WIDTH
+  // on every closed one -- open neighbours' footprints meet exactly at the
+  // shared boundary, no gap and no overlap), plus one wall per closed edge
+  // (built once from the edge/boundary loops below, not once per adjoining
+  // cell, so a closed internal edge never gets a doubled-up wall mesh).
+  private buildMaze(): void {
     const floorMaterial = new MeshStandardMaterial({ color: 0x161619, roughness: 1, flatShading: true });
     const ceilingMaterial = new MeshStandardMaterial({ color: 0x101013, roughness: 1, flatShading: true });
     const wallMaterial = new MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.95, flatShading: true });
 
-    const chamberStart = CHAMBER_CENTER_Z - CHAMBER_HALF_LENGTH;
-    const chamberEnd = CHAMBER_CENTER_Z + CHAMBER_HALF_LENGTH;
-    const segments: Array<[number, number]> = [
-      [-1, chamberStart],
-      [chamberStart, chamberEnd],
-      [chamberEnd, CORRIDOR_LENGTH + 5],
-    ];
+    for (let row = 0; row < MAZE_ROWS; row++) {
+      for (let col = 0; col < MAZE_COLS; col++) {
+        this.buildMazeRoom(row, col, floorMaterial, ceilingMaterial);
+      }
+    }
 
-    for (const [zStart, zEnd] of segments) {
-      const halfWidth = corridorHalfWidthAt((zStart + zEnd) / 2);
-      this.buildCorridorSegment(zStart, zEnd, halfWidth, floorMaterial, ceilingMaterial, wallMaterial);
+    for (let row = 0; row < MAZE_ROWS; row++) {
+      const leftCenter = cellCenter(row, 0);
+      this.buildWall(leftCenter.x - MAZE_CORRIDOR_HALF_WIDTH, leftCenter.z, false, wallMaterial);
+      const rightCenter = cellCenter(row, MAZE_COLS - 1);
+      this.buildWall(rightCenter.x + MAZE_CORRIDOR_HALF_WIDTH, rightCenter.z, false, wallMaterial);
+
+      for (let col = 0; col < MAZE_COLS - 1; col++) {
+        if (!isHorizontalOpen(row, col)) {
+          const a = cellCenter(row, col);
+          this.buildWall(a.x + HALF_PITCH, a.z, false, wallMaterial);
+        }
+      }
+    }
+
+    for (let col = 0; col < MAZE_COLS; col++) {
+      const topCenter = cellCenter(0, col);
+      this.buildWall(topCenter.x, topCenter.z - MAZE_CORRIDOR_HALF_WIDTH, true, wallMaterial);
+      const bottomCenter = cellCenter(MAZE_ROWS - 1, col);
+      this.buildWall(bottomCenter.x, bottomCenter.z + MAZE_CORRIDOR_HALF_WIDTH, true, wallMaterial);
+
+      for (let row = 0; row < MAZE_ROWS - 1; row++) {
+        if (!isVerticalOpen(row, col)) {
+          const a = cellCenter(row, col);
+          this.buildWall(a.x, a.z + HALF_PITCH, true, wallMaterial);
+        }
+      }
     }
   }
 
-  private buildCorridorSegment(
-    zStart: number,
-    zEnd: number,
-    halfWidth: number,
-    floorMaterial: MeshStandardMaterial,
-    ceilingMaterial: MeshStandardMaterial,
-    wallMaterial: MeshStandardMaterial,
-  ): void {
-    const length = zEnd - zStart;
-    const centerZ = (zStart + zEnd) / 2;
+  private buildMazeRoom(row: number, col: number, floorMaterial: MeshStandardMaterial, ceilingMaterial: MeshStandardMaterial): void {
+    const center = cellCenter(row, col);
+    const { leftOpen, rightOpen, upOpen, downOpen } = openingsOf(row, col);
 
-    const floor = new Mesh(new BoxGeometry(halfWidth * 2, 0.2, length), floorMaterial);
-    floor.position.set(0, -0.1, centerZ);
+    const minX = center.x - (leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
+    const maxX = center.x + (rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
+    const minZ = center.z - (upOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
+    const maxZ = center.z + (downOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
+    const width = maxX - minX;
+    const depth = maxZ - minZ;
+    const midX = (minX + maxX) / 2;
+    const midZ = (minZ + maxZ) / 2;
+
+    const floor = new Mesh(new BoxGeometry(width, 0.2, depth), floorMaterial);
+    floor.position.set(midX, -0.1, midZ);
     this.scene.add(floor);
 
-    const ceiling = new Mesh(new BoxGeometry(halfWidth * 2, 0.2, length), ceilingMaterial);
-    ceiling.position.set(0, CORRIDOR_HEIGHT + 0.1, centerZ);
+    const ceiling = new Mesh(new BoxGeometry(width, 0.2, depth), ceilingMaterial);
+    ceiling.position.set(midX, CORRIDOR_HEIGHT + 0.1, midZ);
     this.scene.add(ceiling);
+  }
 
-    const leftWall = new Mesh(new BoxGeometry(0.2, CORRIDOR_HEIGHT, length), wallMaterial);
-    leftWall.position.set(-halfWidth, CORRIDOR_HEIGHT / 2, centerZ);
-    this.scene.add(leftWall);
-
-    const rightWall = new Mesh(new BoxGeometry(0.2, CORRIDOR_HEIGHT, length), wallMaterial);
-    rightWall.position.set(halfWidth, CORRIDOR_HEIGHT / 2, centerZ);
-    this.scene.add(rightWall);
+  // spansX: true builds a wall long along X/thin along Z (blocks north-south
+  // movement -- a vertical-edge or grid top/bottom closure); false builds a
+  // wall long along Z/thin along X (blocks east-west movement -- a
+  // horizontal-edge or grid left/right closure).
+  private buildWall(centerX: number, centerZ: number, spansX: boolean, material: MeshStandardMaterial): void {
+    const span = MAZE_CORRIDOR_HALF_WIDTH * 2;
+    const width = spansX ? span : WALL_THICKNESS;
+    const depth = spansX ? WALL_THICKNESS : span;
+    const wall = new Mesh(new BoxGeometry(width, CORRIDOR_HEIGHT, depth), material);
+    wall.position.set(centerX, CORRIDOR_HEIGHT / 2, centerZ);
+    this.scene.add(wall);
   }
 
   // Ceiling fixture meshes + matching PointLights, each independently
@@ -172,7 +210,8 @@ export class SceneManager {
   // parallel arrays rather than one object list to avoid per-frame
   // allocation when scaling their intensity every tick.
   private buildFixtures(): void {
-    for (const position of LIGHT_FIXTURE_POSITIONS) {
+    for (let i = 0; i < LIGHT_FIXTURE_POSITIONS.length; i++) {
+      const position = LIGHT_FIXTURE_POSITIONS[i];
       const material = new MeshStandardMaterial({
         color: 0x3a3226,
         emissive: 0xffe9c2,
@@ -181,11 +220,11 @@ export class SceneManager {
         flatShading: true,
       });
       const mesh = new Mesh(new BoxGeometry(0.6, 0.12, 0.6), material);
-      mesh.position.set(0, CORRIDOR_HEIGHT - 0.1, position.z);
+      mesh.position.set(position.x, CORRIDOR_HEIGHT - 0.1, position.z);
       this.scene.add(mesh);
 
       const light = new PointLight(0xffdca8, FIXTURE_LIGHT_BASE_INTENSITY, 7, 2);
-      light.position.set(0, CORRIDOR_HEIGHT - 0.3, position.z);
+      light.position.set(position.x, CORRIDOR_HEIGHT - 0.3, position.z);
       this.scene.add(light);
 
       this.fixtureMaterials.push(material);
@@ -195,16 +234,30 @@ export class SceneManager {
 
   // The exit door and its glow -- always on, independent of the light cycle,
   // so it stays a fixed point of orientation even through a blackout.
+  // Oriented across EXIT_DOOR_AXIS (derived from the exit cell's one real
+  // opening) rather than assuming the maze's exit sits at a fixed +Z wall.
   private buildExit(): void {
+    const alongX = Math.abs(EXIT_DOOR_AXIS.x) > Math.abs(EXIT_DOOR_AXIS.z);
+    const doorPanelSpan = MAZE_CORRIDOR_HALF_WIDTH * 1.6;
+    const doorWidth = alongX ? 0.3 : doorPanelSpan;
+    const doorDepth = alongX ? doorPanelSpan : 0.3;
     const door = new Mesh(
-      new BoxGeometry(CHAMBER_HALF_WIDTH, CORRIDOR_HEIGHT - 0.4, 0.3),
+      new BoxGeometry(doorWidth, CORRIDOR_HEIGHT - 0.4, doorDepth),
       new MeshStandardMaterial({ color: 0x14201c, roughness: 0.8, flatShading: true }),
     );
-    door.position.set(0, (CORRIDOR_HEIGHT - 0.4) / 2, EXIT_POSITION.z + 1.5);
+    door.position.set(
+      EXIT_POSITION.x + EXIT_DOOR_AXIS.x * (MAZE_CORRIDOR_HALF_WIDTH + 0.5),
+      (CORRIDOR_HEIGHT - 0.4) / 2,
+      EXIT_POSITION.z + EXIT_DOOR_AXIS.z * (MAZE_CORRIDOR_HALF_WIDTH + 0.5),
+    );
     this.scene.add(door);
 
     const exitLight = new PointLight(0x8fe0c8, 6, 14, 2);
-    exitLight.position.set(0, CORRIDOR_HEIGHT * 0.6, EXIT_POSITION.z + 1);
+    exitLight.position.set(
+      EXIT_POSITION.x + EXIT_DOOR_AXIS.x * MAZE_CORRIDOR_HALF_WIDTH,
+      CORRIDOR_HEIGHT * 0.6,
+      EXIT_POSITION.z + EXIT_DOOR_AXIS.z * MAZE_CORRIDOR_HALF_WIDTH,
+    );
     this.scene.add(exitLight);
   }
 
@@ -235,7 +288,7 @@ export class SceneManager {
 
   // Forces the next updateCamera call to snap to its target instead of
   // easing toward it -- used after a restart, when the player teleports back
-  // to spawn and a smooth follow would otherwise sweep across the corridor.
+  // to spawn and a smooth follow would otherwise sweep across the maze.
   resetCamera(): void {
     this.cameraInitialized = false;
   }
@@ -248,10 +301,10 @@ export class SceneManager {
   }
 
   // intensity: LightController's 0 (dark) .. 1 (on) value. Ambient/hemisphere
-  // keep a small floor (never truly zero) so the corridor silhouette stays
+  // keep a small floor (never truly zero) so the maze's silhouette stays
   // faintly readable even during a blackout; the fixtures themselves swing
-  // fully from off to on. One fixture flickers a little even at full
-  // intensity -- a cosmetic, always-on detail unrelated to game state.
+  // fully from off to on. A handful of fixtures flicker a little even at
+  // full intensity -- a cosmetic, always-on detail unrelated to game state.
   updateLights(intensity: number, deltaSeconds: number): void {
     this.flickerClock += deltaSeconds;
     const ambientFraction = 0.06 + 0.94 * intensity;
@@ -259,7 +312,7 @@ export class SceneManager {
     this.hemisphereLight.intensity = HEMISPHERE_BASE_INTENSITY * ambientFraction;
 
     for (let i = 0; i < this.fixtureLights.length; i++) {
-      const damagedFlicker = i === DAMAGED_FIXTURE_INDEX ? 0.55 + 0.45 * Math.sin(this.flickerClock * 14) : 1;
+      const damagedFlicker = DAMAGED_FIXTURE_INDICES.includes(i) ? 0.55 + 0.45 * Math.sin(this.flickerClock * 14) : 1;
       const fixtureIntensity = intensity * damagedFlicker;
       this.fixtureLights[i].intensity = FIXTURE_LIGHT_BASE_INTENSITY * fixtureIntensity;
       this.fixtureMaterials[i].emissiveIntensity = fixtureIntensity;

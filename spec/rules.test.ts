@@ -54,11 +54,11 @@ describe("reaching the exit wins the game", () => {
   const triggerRadius = 2.5;
 
   it("given the player is within the trigger radius of the exit, the game is won", () => {
-    expect(checkExitReached(68, 70, triggerRadius)).toBe(true);
+    expect(checkExitReached(2, triggerRadius)).toBe(true);
     expect(transition("playing", { type: "exitReached" })).toBe("won");
   });
 
   it("given the player is outside the trigger radius, the game continues", () => {
-    expect(checkExitReached(60, 70, triggerRadius)).toBe(false);
+    expect(checkExitReached(10, triggerRadius)).toBe(false);
   });
 });

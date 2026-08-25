@@ -12,16 +12,24 @@ export const PLAYER_SPEED = 4.2;
 // Carried over unchanged from LAST SIGNAL's playtest fix.
 export const PLAYER_TURN_RATE_RADIANS_PER_SECOND = Math.PI;
 
-// Long enough that holding the move key down the whole way runs through
-// several full light cycles, not just one -- see PROCESS.md's fairness trace
-// for why 70 let a blind "just hold W" run finish before the mechanic ever
-// mattered.
-export const CORRIDOR_LENGTH = 150;
-export const CORRIDOR_HALF_WIDTH = 2.2;
 export const CORRIDOR_HEIGHT = 3.4;
-export const CORRIDOR_SIDE_MARGIN = 0.3;
-export const CORRIDOR_BACK_WALL_Z = 0.5;
 export const EXIT_TRIGGER_RADIUS = 2.5;
+
+// The baked maze grid (src/game/Maze.ts) -- see PROCESS.md's fairness trace
+// for why a straight corridor let a blind "just hold W" run finish before
+// the light cycle ever mattered, and why a real branching maze fixes that.
+// Cell pitch (centre-to-centre); half-width narrower than the old straight
+// corridor's 2.2 on purpose, so corners genuinely require steering rather
+// than reading as a wide hallway.
+export const MAZE_CELL_SIZE = 6.5;
+export const MAZE_CORRIDOR_HALF_WIDTH = 1.9;
+export const PLAYER_COLLISION_RADIUS = 0.35;
+
+// Breadcrumb-trail bounds for Ghost.positionBehind -- see Ghost.ts. The cap
+// only needs headroom over GHOST_INITIAL_DISTANCE (below), since distance
+// only ever shrinks except on reset().
+export const GHOST_TRAIL_MIN_SPACING = 0.15;
+export const GHOST_TRAIL_MAX_ARC_LENGTH = 30;
 
 // Light-cycle durations by difficulty tier -- see LightController.ts. Ranges
 // tighten (shorter LIGHT/WARNING, longer DARK) as the player advances, keyed
@@ -36,9 +44,10 @@ export const DARK_SECONDS_EARLY: readonly [number, number] = [1.6, 2.2];
 export const DARK_SECONDS_MID: readonly [number, number] = [2.2, 3];
 export const DARK_SECONDS_LATE: readonly [number, number] = [2.8, 3.6];
 
-// Progress fraction (playerZ / CORRIDOR_LENGTH) at which the mid/late timing
-// tiers take over -- distance-based, not wall-clock, so pacing tracks the
-// player's own pace rather than racing an independent clock.
+// Progress fraction (BFS steps to the exit, see MazeGraph.ts) at which the
+// mid/late timing tiers take over -- graph-distance-based, not wall-clock, so
+// pacing tracks the player's own progress through the maze rather than
+// racing an independent clock.
 export const DIFFICULTY_MID_PROGRESS = 0.4;
 export const DIFFICULTY_LATE_PROGRESS = 0.75;
 

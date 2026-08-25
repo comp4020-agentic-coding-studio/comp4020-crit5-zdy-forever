@@ -91,7 +91,7 @@ function tick(now: number): void {
   audioManager.sync(danger, game.illegalMovementNow);
 
   sceneManager.syncPlayer(game.player.position);
-  game.ghost.positionBehind(game.player.position.z, ghostPosition);
+  game.ghost.positionBehind(game.trail, game.ghost.distance, ghostPosition);
   sceneManager.syncGhost(ghostPosition);
   sceneManager.updateLights(game.light.intensity, deltaSeconds);
   sceneManager.updateCamera(game.player.position, game.player.forward, deltaSeconds);
