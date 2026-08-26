@@ -41,7 +41,6 @@ const sceneManager = new SceneManager(canvas);
 const audioManager = new AudioManager();
 const endScreenUI = new EndScreenUI(endScreenElement, endMessageElement, restartButton, () => {
   game.reset();
-  sceneManager.resetCamera();
 });
 
 function resize(): void {
@@ -50,8 +49,7 @@ function resize(): void {
 window.addEventListener("resize", resize);
 resize();
 
-sceneManager.syncPlayer(game.player.position);
-sceneManager.updateCamera(game.player.position, game.player.forward, 1);
+sceneManager.updateCamera(game.player.position, game.player.forward);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -90,11 +88,10 @@ function tick(now: number): void {
   sceneManager.setDread(danger);
   audioManager.sync(danger, game.illegalMovementNow);
 
-  sceneManager.syncPlayer(game.player.position);
   game.ghost.positionBehind(game.trail, game.ghost.distance, ghostPosition);
   sceneManager.syncGhost(ghostPosition);
   sceneManager.updateLights(game.light.intensity, deltaSeconds);
-  sceneManager.updateCamera(game.player.position, game.player.forward, deltaSeconds);
+  sceneManager.updateCamera(game.player.position, game.player.forward);
   sceneManager.render();
 
   requestAnimationFrame(tick);

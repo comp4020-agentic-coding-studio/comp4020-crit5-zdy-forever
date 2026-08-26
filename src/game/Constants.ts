@@ -1,7 +1,6 @@
 // Every tunable number for DON'T MOVE, in one place, so balance changes
 // during playtesting don't require hunting through the game/render code.
 
-export const PLAYER_HEIGHT = 0.9;
 export const PLAYER_SPEED = 4.2;
 // How fast the player's facing -- and therefore the chase camera anchored
 // behind it -- turns to catch up with the actual movement direction, in
@@ -74,9 +73,9 @@ export const FINAL_DARK_SECONDS = 3.5;
 
 export const JOYSTICK_DEAD_ZONE = 0.12;
 
-export const CAMERA_DISTANCE = 5.5;
-export const CAMERA_HEIGHT = 2.4;
-export const CAMERA_LOOK_HEIGHT = 1.2;
+// First-person eye height -- comfortably below CORRIDOR_HEIGHT (3.4), so
+// there's real headroom to the ceiling.
+export const CAMERA_EYE_HEIGHT = 1.6;
 
 // Vertical FOV tuned for landscape/desktop. A portrait phone (aspect < 1)
 // applying this unchanged gets a much narrower *horizontal* view -- so

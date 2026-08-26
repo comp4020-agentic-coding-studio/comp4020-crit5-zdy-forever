@@ -41,7 +41,13 @@ what was already proven to work, not by picking arbitrarily:
   `PLAYER_TURN_RATE_RADIANS_PER_SECOND`) answers the brief's "can the player
   look back at the ghost" question for free — backing away turns the camera
   around over about half a second, with no separate look control and no
-  pointer lock.
+  pointer lock. Later switched from third-person (chase camera behind the
+  player) to first-person on request — the mechanic itself needed no change
+  to make that switch: the camera already faced exactly along `forward`, so
+  moving it to the player's own eye position and dropping the third-person
+  distance/offset preserved the same "backing away reveals the ghost" effect
+  from inside the character's head instead of behind it. No mouse-look or
+  touch-drag was added; there still isn't a separate look control.
 - **Penalised, not blocked.** The brief describes moving in the dark as a
   temptation the player can give in to, not an input that stops working.
   Movement always goes exactly where input says; a separate rule
@@ -105,8 +111,12 @@ what was already proven to work, not by picking arbitrarily:
   per open room footprint, one wall box per closed edge or grid boundary,
   built from the same `openingsOf` helper as the collision model), per-fixture
   lights driven by `LightController.intensity`, an exit light/door oriented
-  by `EXIT_DOOR_AXIS`, and the follow camera. World "up" is always
-  `(0, 1, 0)`, so no per-frame quaternion realignment is needed.
+  by `EXIT_DOOR_AXIS`, and a first-person camera pinned to the player's eye
+  position (`CAMERA_EYE_HEIGHT`) looking exactly along `forward` -- no
+  position lag, since `forward` itself already eases toward the movement
+  direction at a capped turn rate. There is no player body mesh; the camera
+  sits where it would have been. World "up" is always `(0, 1, 0)`, so no
+  per-frame quaternion realignment is needed.
 - `src/audio/AudioManager.ts` — procedural WebAudio only, gated on the same
   start-button gesture as before: an always-on ambient hum, a heartbeat and a
   breathing layer that fade in as danger rises, footstep thumps cued by

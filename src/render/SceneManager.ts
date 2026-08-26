@@ -3,7 +3,6 @@ import {
   BoxGeometry,
   CapsuleGeometry,
   Color,
-  ConeGeometry,
   FogExp2,
   HemisphereLight,
   Mesh,
@@ -16,16 +15,13 @@ import {
   WebGLRenderer,
 } from "three";
 import {
-  CAMERA_DISTANCE,
+  CAMERA_EYE_HEIGHT,
   CAMERA_FOV_DEGREES,
   CAMERA_FOV_MAX_DEGREES,
   CAMERA_FOV_REFERENCE_ASPECT,
-  CAMERA_HEIGHT,
-  CAMERA_LOOK_HEIGHT,
   CORRIDOR_HEIGHT,
   MAZE_CELL_SIZE,
   MAZE_CORRIDOR_HALF_WIDTH,
-  PLAYER_HEIGHT,
 } from "../game/Constants.ts";
 import {
   DAMAGED_FIXTURE_INDICES,
@@ -41,10 +37,10 @@ import {
 } from "../game/Maze.ts";
 
 const UP = new Vector3(0, 1, 0);
+const FALLBACK_FORWARD = new Vector3(0, 0, -1);
 const AMBIENT_BASE_INTENSITY = 1.1;
 const HEMISPHERE_BASE_INTENSITY = 0.85;
 const FIXTURE_LIGHT_BASE_INTENSITY = 4.5;
-const PLAYER_MESH_HEIGHT = PLAYER_HEIGHT * 1.5;
 const GHOST_CAPSULE_RADIUS = 0.3;
 const GHOST_CAPSULE_LENGTH = 2.2;
 const GHOST_MESH_HALF_HEIGHT = GHOST_CAPSULE_LENGTH / 2 + GHOST_CAPSULE_RADIUS;
@@ -58,7 +54,6 @@ export class SceneManager {
   readonly camera: PerspectiveCamera;
 
   private readonly renderer: WebGLRenderer;
-  private readonly playerMesh: Mesh;
   private readonly ghostMesh: Mesh;
   private readonly ambientLight: AmbientLight;
   private readonly hemisphereLight: HemisphereLight;
@@ -72,16 +67,8 @@ export class SceneManager {
   private dread = 0;
   private readonly reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  // Carried frame-to-frame so the camera eases toward its ideal position
-  // instead of snapping to it every frame.
-  private readonly cameraPosition = new Vector3();
-  private readonly cameraLookAt = new Vector3();
-  private cameraInitialized = false;
-
   // Scratch vectors reused every frame to avoid per-frame allocation.
-  private readonly desiredCameraPosition = new Vector3();
-  private readonly desiredLookAt = new Vector3();
-  private readonly backward = new Vector3();
+  private readonly lookAtTarget = new Vector3();
   private readonly rawCameraForward = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -101,12 +88,6 @@ export class SceneManager {
     this.buildMaze();
     this.buildFixtures();
     this.buildExit();
-
-    this.playerMesh = new Mesh(
-      new ConeGeometry(0.4, PLAYER_MESH_HEIGHT, 6),
-      new MeshStandardMaterial({ color: 0xcbb994, roughness: 0.8, flatShading: true }),
-    );
-    this.scene.add(this.playerMesh);
 
     // Tall, narrow, desaturated, and deliberately not emissive -- it has no
     // light of its own, so it only reads clearly once the corridor's own
@@ -278,19 +259,8 @@ export class SceneManager {
     return Math.min((verticalFovRad * 180) / Math.PI, CAMERA_FOV_MAX_DEGREES);
   }
 
-  syncPlayer(position: Vector3): void {
-    this.playerMesh.position.copy(position).setY(PLAYER_MESH_HEIGHT / 2);
-  }
-
   syncGhost(position: Vector3): void {
     this.ghostMesh.position.copy(position).setY(GHOST_MESH_HALF_HEIGHT);
-  }
-
-  // Forces the next updateCamera call to snap to its target instead of
-  // easing toward it -- used after a restart, when the player teleports back
-  // to spawn and a smooth follow would otherwise sweep across the maze.
-  resetCamera(): void {
-    this.cameraInitialized = false;
   }
 
   // 0 (calm) to 1 (right on top of the player). Read live each frame rather
@@ -319,33 +289,24 @@ export class SceneManager {
     }
   }
 
-  updateCamera(playerPosition: Vector3, forward: Vector3, deltaSeconds: number): void {
-    this.backward.copy(forward).multiplyScalar(-1);
-    this.desiredCameraPosition
-      .copy(playerPosition)
-      .addScaledVector(UP, CAMERA_HEIGHT)
-      .addScaledVector(this.backward, CAMERA_DISTANCE);
-    this.desiredLookAt.copy(playerPosition).addScaledVector(UP, CAMERA_LOOK_HEIGHT);
-
-    if (!this.cameraInitialized) {
-      this.cameraPosition.copy(this.desiredCameraPosition);
-      this.cameraLookAt.copy(this.desiredLookAt);
-      this.cameraInitialized = true;
-    } else {
-      const followRate = 1 - Math.pow(0.001, deltaSeconds);
-      this.cameraPosition.lerp(this.desiredCameraPosition, followRate);
-      this.cameraLookAt.lerp(this.desiredLookAt, followRate);
-    }
-
-    this.camera.position.copy(this.cameraPosition);
+  // First-person: the camera sits exactly at the player's eye position and
+  // looks exactly along `forward` -- no lerp/lag, since the player's
+  // collision-resolved position is already clean each frame, and lagging
+  // the view behind input is exactly the disconnect first-person cameras
+  // need to avoid. `forward` itself already eases toward the movement
+  // direction at a capped turn rate (Player.move), which is what makes
+  // backing away swing the view around to reveal what's behind you.
+  updateCamera(playerPosition: Vector3, forward: Vector3): void {
+    this.camera.position.copy(playerPosition).setY(CAMERA_EYE_HEIGHT);
     if (this.dread > 0 && !this.reducedMotionQuery.matches) {
       const magnitude = this.dread * 0.05;
       this.camera.position.x += (Math.random() * 2 - 1) * magnitude;
       this.camera.position.y += (Math.random() * 2 - 1) * magnitude;
       this.camera.position.z += (Math.random() * 2 - 1) * magnitude;
     }
+    this.lookAtTarget.copy(this.camera.position).add(forward);
     this.camera.up.copy(UP);
-    this.camera.lookAt(this.cameraLookAt);
+    this.camera.lookAt(this.lookAtTarget);
   }
 
   // The camera's forward/right, flattened onto the floor plane -- this is
@@ -356,9 +317,10 @@ export class SceneManager {
     this.camera.getWorldDirection(this.rawCameraForward);
     outForward.set(this.rawCameraForward.x, 0, this.rawCameraForward.z);
     if (outForward.lengthSq() < 1e-6) {
-      // Looking straight down/up (rare, e.g. right after a reset): fall back
-      // to the last known backward direction rather than producing NaNs.
-      outForward.copy(this.backward).multiplyScalar(-1);
+      // Looking straight down/up -- can't happen given forward is always
+      // kept horizontal (Player.move), but guards against NaNs if that ever
+      // changes.
+      outForward.copy(FALLBACK_FORWARD);
     }
     outForward.normalize();
     outRight.crossVectors(outForward, UP).normalize();
