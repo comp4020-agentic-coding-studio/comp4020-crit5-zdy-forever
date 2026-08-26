@@ -286,3 +286,62 @@ positions, while a point just past a closed edge's wall stop is not; and
 returns a point exactly `ghost.distance` behind the player, never at or past
 it. `pnpm check` is green (29/29). Stopping here for a real human playtest
 pass before writing anything further in this section.
+
+**Maze shrunk 8x8 -> 5x5 for a faster playtest loop.** The 38-edge, ~59s
+true path above was slowing down iteration on unrelated changes — every
+manual playtest paid nearly a minute just to reach the exit. Re-ran
+`scripts/generate-maze.ts` with `ROWS=COLS=5` and a target path band of
+16-19 edges (sampled 3000 seeds of a plain 5x5 recursive-backtracker first:
+diameters cluster 16-22, so the band sits in the achievable middle, not the
+tail), landing on seed 1519: 18 edges, ~117 units, ~28s ideal at
+`PLAYER_SPEED=4.2` — comfortably inside a 40s playtest budget with room for
+real turning and a wrong turn or two. 5 dead-end leaves survive (`MIN_LEAVES`
+dropped to 5 to match the smaller tree), three of them tied for closest to
+spawn by BFS distance ([1,2], [2,3], [3,2], all 5 steps out) and reassigned
+to `DAMAGED_FIXTURE_INDICES`. Nothing outside `src/game/Maze.ts` and
+`scripts/generate-maze.ts` hardcoded the old 8x8 size or edge count —
+`MazeGraph.ts`, `SceneManager.ts`, and every spec test derive from
+`MAZE_ROWS`/`MAZE_COLS`/`SPAWN_CELL`/`EXIT_CELL`, so `pnpm check` stayed
+green (29/29) with no other file touched. Verified live: dev server up,
+game started, held `W` from spawn, corridor and room geometry rendered with
+no console/page errors.
+
+**Closed walls didn't cover the rooms they were closing off.** Reported as a
+dark pillar/window-shaped obstruction that looked passable but wasn't --
+first seen near the exit and misdiagnosed as the exit door mesh (removed
+per request, since walls were meant to be solid with no door frame at all),
+then seen again next to spawn where no door mesh had ever existed, which
+ruled that diagnosis out. Root cause was in `SceneManager.buildWall()`:
+every closed edge got a wall sized to the fixed corridor width
+(`MAZE_CORRIDOR_HALF_WIDTH * 2`), but `buildMazeRoom()` extends a room's own
+footprint out to the full cell pitch (`HALF_PITCH`) on any side that's
+*open* -- so a room widened by a perpendicular opening (any turn,
+T-junction, or crossing) left its closing wall too narrow on one or both
+flanks. The gap wasn't a hole in the collision grid (that's built from
+`openingsOf()` independently and was already correct) -- just floor with no
+wall standing on it, letting the next room's light bleed through and
+reading as an opening you could walk into, when the true edge was still
+closed. Fixed by sizing each wall from `openingsOf()` on both cells it
+borders (the union of their widths on that side) instead of assuming every
+closed edge is the same width. Verified with headless-browser renders of
+the T-junction two cells from spawn before and after: solid on both flanks
+afterwards, open only on the one side `openingsOf` actually reports as
+open. Only `SceneManager.ts` changed -- collision needed no fix since it was
+never wrong -- and `pnpm check` stayed green (29/29).
+
+**Maze shrunk again, 5x5 -> 4x4.** Asked for a smaller maze on top of the
+above. Re-ran `scripts/generate-maze.ts` with `ROWS=COLS=4` and a target path
+band of 11-13 edges (sampled 3000 seeds of a plain 4x4 recursive-backtracker
+first: diameters cluster 10-15, 15 being the theoretical max for 16 cells),
+landing on seed 265: 12 edges, ~78 units, ~19s ideal at `PLAYER_SPEED=4.2` --
+generous headroom inside the 40s budget. `MIN_LEAVES` dropped to 3 (a 12-edge
+path through 16 cells only leaves 4 cells off the true path, so 5 dead ends
+the way 5x5 had was never going to fit). 3 dead-end leaves survive; the two
+closest to spawn by BFS distance ([0,3] at 3 steps, [2,2] at 4 steps) are
+reassigned to `DAMAGED_FIXTURE_INDICES`, while the third (9 steps out) is left
+alone same as the two far dead ends were in the 5x5 layout. Same
+parametrization as last time meant only `src/game/Maze.ts` and
+`scripts/generate-maze.ts` needed touching; `pnpm check` stayed green
+(29/29). Verified live via a headless render from the new spawn cell and its
+T-junction neighbour, matching the new layout's bitstrings with no wall
+gaps.

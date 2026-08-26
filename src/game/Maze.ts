@@ -1,63 +1,50 @@
 import { Vector3 } from "three";
 import { MAZE_CELL_SIZE } from "./Constants.ts";
 
-// Baked once by scripts/generate-maze.ts (seed 1372, an 8x8 recursive-
+// Baked once by scripts/generate-maze.ts (seed 265, a 4x4 recursive-
 // backtracker spanning tree) and hand-copied here -- this file, not the
 // generator script, is the runtime source of truth. Re-running the
 // generator with the same seed reproduces this exact layout.
 //
-// True path spawn->exit: 38 edges, ~247 units at MAZE_CELL_SIZE=6.5 -- see
-// PROCESS.md's maze fairness trace. 10 genuine dead ends (tree structure,
-// so no accidental shortcuts), several clustered near spawn as cheap early
-// red herrings.
+// Shrunk again from the 5x5 (18-edge, ~117-unit true path) for an even
+// quicker mistake-free run: true path spawn->exit is 12 edges, ~78 units at
+// MAZE_CELL_SIZE=6.5, i.e. ~19s of travel if never slowed by a turn -- see
+// scripts/generate-maze.ts for the sampled band this was picked from. 3
+// genuine dead ends (tree structure, so no accidental shortcuts), two of
+// them close to spawn as cheap early red herrings; the third sits much
+// farther out along the true path so it isn't given the same treatment.
 //
-//   +--+--+--+--+--+--+--+--+
-//   |E    |        |        |
-//   +--+  +  +--+  +--+  +  +
-//   |  |  |  |           |S |
-//   +  +  +  +--+--+  +--+--+
-//   |     |     |     |     |
-//   +  +--+  +  +--+--+  +  +
-//   |     |  |           |  |
-//   +--+  +--+  +--+--+--+  +
-//   |  |     |  |        |  |
-//   +  +--+  +  +--+--+  +  +
-//   |     |  |  |        |  |
-//   +  +--+  +  +  +--+--+  +
-//   |     |  |     |        |
-//   +  +  +  +--+--+  +--+  +
-//   |  |              |     |
-//   +--+--+--+--+--+--+--+--+
+//   +--+--+--+--+
+//   |E |        |
+//   +  +  +  +--+
+//   |  |S |     |
+//   +  +--+  +  +
+//   |     |  |  |
+//   +--+  +--+  +
+//   |           |
+//   +--+--+--+--+
 //
-export const MAZE_ROWS = 8;
-export const MAZE_COLS = 8;
+export const MAZE_ROWS = 4;
+export const MAZE_COLS = 4;
 
 // horizontalOpenings[row] -- COLS-1 bits, bit c = opening between
 // (row, c) and (row, c+1).
 export const HORIZONTAL_OPENINGS: readonly string[] = [
-  "1011011",
-  "0001110",
-  "1010101",
-  "1001110",
-  "0100110",
-  "1000110",
-  "1001011",
-  "0111101",
+  "011",
+  "001",
+  "100",
+  "111",
 ];
 
 // verticalOpenings[row] (row 0..ROWS-2) -- COLS bits, bit c = opening
 // between (row, c) and (row+1, c).
 export const VERTICAL_OPENINGS: readonly string[] = [
-  "01101011",
-  "11100100",
-  "10110011",
-  "01010001",
-  "10110011",
-  "10111001",
-  "11100101",
+  "1110",
+  "1011",
+  "0101",
 ];
 
-export const SPAWN_CELL: readonly [number, number] = [1, 7]; // [row, col]
+export const SPAWN_CELL: readonly [number, number] = [1, 1]; // [row, col]
 export const EXIT_CELL: readonly [number, number] = [0, 0];
 
 export function isHorizontalOpen(row: number, col: number): boolean {
@@ -147,12 +134,11 @@ function fixtureIndexOf(row: number, col: number): number {
   return row * MAZE_COLS + col;
 }
 
-// Early decoy branches -- the three dead-end leaf cells closest to spawn by
-// BFS distance ([0,5] at 3 steps, [1,3] and [2,4] at 6 steps each, versus
-// every other dead end sitting 11+ steps out), confirmed by walking the
+// Early decoy branches -- the two dead-end leaf cells closest to spawn by
+// BFS distance ([0,3] at 3 steps, [2,2] at 4 steps, versus the third dead
+// end sitting 9 steps out along the true path), confirmed by walking the
 // baked graph rather than eyeballing the ASCII map above.
 export const DAMAGED_FIXTURE_INDICES: readonly number[] = [
-  fixtureIndexOf(0, 5),
-  fixtureIndexOf(1, 3),
-  fixtureIndexOf(2, 4),
+  fixtureIndexOf(0, 3),
+  fixtureIndexOf(2, 2),
 ];

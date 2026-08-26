@@ -122,30 +122,79 @@ export class SceneManager {
       }
     }
 
+    // Each wall spans the wider of the room(s) it closes off, not a fixed
+    // corridor width -- a room widened by a *perpendicular* opening (any
+    // turn, T-junction, or crossing) would otherwise leave the wall too
+    // narrow to fully occlude that room's extended edge, showing as a gap
+    // flanking the wall (and a matching notch in the collision boundary).
     for (let row = 0; row < MAZE_ROWS; row++) {
       const leftCenter = cellCenter(row, 0);
-      this.buildWall(leftCenter.x - MAZE_CORRIDOR_HALF_WIDTH, leftCenter.z, false, wallMaterial);
+      const leftRoom = openingsOf(row, 0);
+      this.buildWall(
+        leftCenter.x - MAZE_CORRIDOR_HALF_WIDTH,
+        leftCenter.z - (leftRoom.upOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        leftCenter.z + (leftRoom.downOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        false,
+        wallMaterial,
+      );
       const rightCenter = cellCenter(row, MAZE_COLS - 1);
-      this.buildWall(rightCenter.x + MAZE_CORRIDOR_HALF_WIDTH, rightCenter.z, false, wallMaterial);
+      const rightRoom = openingsOf(row, MAZE_COLS - 1);
+      this.buildWall(
+        rightCenter.x + MAZE_CORRIDOR_HALF_WIDTH,
+        rightCenter.z - (rightRoom.upOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        rightCenter.z + (rightRoom.downOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        false,
+        wallMaterial,
+      );
 
       for (let col = 0; col < MAZE_COLS - 1; col++) {
         if (!isHorizontalOpen(row, col)) {
           const a = cellCenter(row, col);
-          this.buildWall(a.x + HALF_PITCH, a.z, false, wallMaterial);
+          const left = openingsOf(row, col);
+          const right = openingsOf(row, col + 1);
+          this.buildWall(
+            a.x + HALF_PITCH,
+            a.z - (left.upOpen || right.upOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+            a.z + (left.downOpen || right.downOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+            false,
+            wallMaterial,
+          );
         }
       }
     }
 
     for (let col = 0; col < MAZE_COLS; col++) {
       const topCenter = cellCenter(0, col);
-      this.buildWall(topCenter.x, topCenter.z - MAZE_CORRIDOR_HALF_WIDTH, true, wallMaterial);
+      const topRoom = openingsOf(0, col);
+      this.buildWall(
+        topCenter.z - MAZE_CORRIDOR_HALF_WIDTH,
+        topCenter.x - (topRoom.leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        topCenter.x + (topRoom.rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        true,
+        wallMaterial,
+      );
       const bottomCenter = cellCenter(MAZE_ROWS - 1, col);
-      this.buildWall(bottomCenter.x, bottomCenter.z + MAZE_CORRIDOR_HALF_WIDTH, true, wallMaterial);
+      const bottomRoom = openingsOf(MAZE_ROWS - 1, col);
+      this.buildWall(
+        bottomCenter.z + MAZE_CORRIDOR_HALF_WIDTH,
+        bottomCenter.x - (bottomRoom.leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        bottomCenter.x + (bottomRoom.rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+        true,
+        wallMaterial,
+      );
 
       for (let row = 0; row < MAZE_ROWS - 1; row++) {
         if (!isVerticalOpen(row, col)) {
           const a = cellCenter(row, col);
-          this.buildWall(a.x, a.z + HALF_PITCH, true, wallMaterial);
+          const top = openingsOf(row, col);
+          const bottom = openingsOf(row + 1, col);
+          this.buildWall(
+            a.z + HALF_PITCH,
+            a.x - (top.leftOpen || bottom.leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+            a.x + (top.rightOpen || bottom.rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+            true,
+            wallMaterial,
+          );
         }
       }
     }
@@ -176,13 +225,23 @@ export class SceneManager {
   // spansX: true builds a wall long along X/thin along Z (blocks north-south
   // movement -- a vertical-edge or grid top/bottom closure); false builds a
   // wall long along Z/thin along X (blocks east-west movement -- a
-  // horizontal-edge or grid left/right closure).
-  private buildWall(centerX: number, centerZ: number, spansX: boolean, material: MeshStandardMaterial): void {
-    const span = MAZE_CORRIDOR_HALF_WIDTH * 2;
+  // horizontal-edge or grid left/right closure). shortAxisPos fixes the
+  // wall along its thin axis; longAxisMin/Max set its span along its long
+  // axis, matching however wide the room(s) it closes off actually are
+  // (see buildMaze's callers) rather than assuming a fixed corridor width.
+  private buildWall(
+    shortAxisPos: number,
+    longAxisMin: number,
+    longAxisMax: number,
+    spansX: boolean,
+    material: MeshStandardMaterial,
+  ): void {
+    const span = longAxisMax - longAxisMin;
+    const longAxisMid = (longAxisMin + longAxisMax) / 2;
     const width = spansX ? span : WALL_THICKNESS;
     const depth = spansX ? WALL_THICKNESS : span;
     const wall = new Mesh(new BoxGeometry(width, CORRIDOR_HEIGHT, depth), material);
-    wall.position.set(centerX, CORRIDOR_HEIGHT / 2, centerZ);
+    wall.position.set(spansX ? longAxisMid : shortAxisPos, CORRIDOR_HEIGHT / 2, spansX ? shortAxisPos : longAxisMid);
     this.scene.add(wall);
   }
 
@@ -213,31 +272,21 @@ export class SceneManager {
     }
   }
 
-  // The exit door and its glow -- always on, independent of the light cycle,
-  // so it stays a fixed point of orientation even through a blackout.
-  // Oriented across EXIT_DOOR_AXIS (derived from the exit cell's one real
-  // opening) rather than assuming the maze's exit sits at a fixed +Z wall.
+  // The exit's glow -- always on, independent of the light cycle, so it
+  // stays a fixed point of orientation even through a blackout. No geometry
+  // of its own: the opening itself is already an ordinary maze doorway (the
+  // wall loops in buildMaze() simply have no wall on the exit cell's one
+  // open side), so a solid-looking door/frame object here would either
+  // block that doorway or float pointlessly next to it. The light alone is
+  // enough to mark the exit without adding anything a player could get
+  // stuck on.
   private buildExit(): void {
-    const alongX = Math.abs(EXIT_DOOR_AXIS.x) > Math.abs(EXIT_DOOR_AXIS.z);
-    const doorPanelSpan = MAZE_CORRIDOR_HALF_WIDTH * 1.6;
-    const doorWidth = alongX ? 0.3 : doorPanelSpan;
-    const doorDepth = alongX ? doorPanelSpan : 0.3;
-    const door = new Mesh(
-      new BoxGeometry(doorWidth, CORRIDOR_HEIGHT - 0.4, doorDepth),
-      new MeshStandardMaterial({ color: 0x14201c, roughness: 0.8, flatShading: true }),
-    );
-    door.position.set(
-      EXIT_POSITION.x + EXIT_DOOR_AXIS.x * (MAZE_CORRIDOR_HALF_WIDTH + 0.5),
-      (CORRIDOR_HEIGHT - 0.4) / 2,
-      EXIT_POSITION.z + EXIT_DOOR_AXIS.z * (MAZE_CORRIDOR_HALF_WIDTH + 0.5),
-    );
-    this.scene.add(door);
-
+    const axis = EXIT_DOOR_AXIS;
     const exitLight = new PointLight(0x8fe0c8, 6, 14, 2);
     exitLight.position.set(
-      EXIT_POSITION.x + EXIT_DOOR_AXIS.x * MAZE_CORRIDOR_HALF_WIDTH,
+      EXIT_POSITION.x + axis.x * MAZE_CORRIDOR_HALF_WIDTH,
       CORRIDOR_HEIGHT * 0.6,
-      EXIT_POSITION.z + EXIT_DOOR_AXIS.z * MAZE_CORRIDOR_HALF_WIDTH,
+      EXIT_POSITION.z + axis.z * MAZE_CORRIDOR_HALF_WIDTH,
     );
     this.scene.add(exitLight);
   }
