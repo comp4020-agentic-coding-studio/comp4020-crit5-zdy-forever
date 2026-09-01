@@ -493,3 +493,71 @@ the same ceiling fixture, landing on `PointLight(0x9a7ee0, 10, 9, 2)`.
 Verified with `pnpm check` (29/29 green) and a final headless screenshot pass
 confirming the retuned light, the gapless floor/ceiling patch, and the
 `ESCAPED` end screen all render correctly.
+
+**Secret door pushed out to ~5s of travel; both exits given an actual EXIT
+sign.** Direct request:
+
+> 1.我回头之后要走大概5秒钟才能到这个出口,2.所有的出口做得显眼一点 要有exit的标志
+> ("1. after I turn around, it should take about 5 seconds of walking to
+> reach this exit. 2. make all exits more visually obvious — there should be
+> an EXIT sign")
+
+At the time, `SECRET_DOOR_POSITION` was the adjacent cell's centre
+(`MAZE_CELL_SIZE = 6.5` units, ~1.5s at `PLAYER_SPEED = 4.2`) — too close to
+read as a real secret. Rather than hardcode a new distance, `Maze.ts` now
+derives it from the same speed constant the player actually moves at:
+`SPAWN_POINT` plus `SECRET_PASSAGE_DIRECTION` (the existing secret edge's
+direction, unchanged) scaled by `PLAYER_SPEED * SECRET_DOOR_TRAVEL_SECONDS`
+(5), landing at 21 units — past the 4×4 grid's own southern boundary
+(reachable in 2 cells / 13 units from spawn) into genuinely new tunnel space.
+`SECRET_DOOR_CELL` itself (the one edge special-cased open behind spawn) is
+untouched; it still only decides *which wall* is skipped; `SECRET_DOOR_AXIS`'s
+formula didn't need to change either, since it's direction-only and the
+direction is the same, just extended. `Game.ts`'s win check reads
+`SECRET_DOOR_POSITION` generically and needed no change at all.
+
+The new distance falls outside the real grid, so `MazeGraph.ts` gained one
+more additive collision rect (`buildSecretPassageExtensionRect`) bridging
+from where the last real cell's own rect already stops to just short of a new
+dead-end wall — same pattern as the original secret-door bridge rect, not a
+replacement for it. `SceneManager.buildMaze()` skips one more boundary wall
+(the real grid's southern edge on the spawn column) and a new
+`buildSecretPassageExtension()` builds the extension as a plain three-sided
+dead-end corridor (floor/ceiling/two side walls/end wall), reusing the exact
+`buildWall` helper every other dead end in the maze already uses. The
+original near-spawn `doorLight` had been positioned off `SECRET_DOOR_POSITION`
+directly; now that constant points 21 units away, that light would have gone
+dark at the doorway it was meant to mark, so it was repointed at the local
+`secretCenter` variable instead — a one-line fix, not new logic — and the far
+dead end got its own copy of the same light.
+
+For visibility, both exits — the real one and the secret one — gained a new
+shared `buildExitSign()` helper: a black-backed, colour-bordered "EXIT"
+placard drawn onto a `CanvasTexture` and applied to an unlit
+`MeshBasicMaterial` plane (so it reads at full brightness through the light
+cycle, including a blackout, rather than fading with scene lighting the way
+the PointLight glows do), rotated via `atan2` on the direction a player
+arriving at that exit is actually walking, so the visible face points back at
+them rather than away. The real exit's sign reuses its existing teal
+(`0x8fe0c8`); the secret one reuses its existing violet (`0x9a7ee0`).
+
+Verified with `pnpm check` (29/29 green). Live against the dev server: a
+Playwright run holding straight backward input from spawn reached the
+`"ESCAPED"` end screen with elapsed simulated travel matching the ~21-unit /
+~4.4s-to-trigger design point (the `EXIT_TRIGGER_RADIUS` of 2.5 fires slightly
+before the full 21 units); a second run with a brief early turn (closer to how
+a real player's input never holds a mathematically exact heading) also
+reached the end screen, but as `"DIE"`, not `"ESCAPED"` — traced by hand
+rather than assumed to be a regression: that script held movement input
+continuously regardless of the light cycle, and the game's one core rule is
+exactly "moving in the dark accumulates toward death" (`GameRules.ts`), so a
+longer, blindly-held run through more dark cycles dying is the mechanic
+working as designed, not a broken path — a player who actually stops during a
+blackout, the way the rest of the maze already requires, is unaffected. The
+sign geometry itself was confirmed separately for both exits: a temporary
+debug hook (position/forward teleport to each exit, reverted before commit,
+no trace left in `main.ts`) screenshotted the real exit's sign close-up and
+legible; the secret exit's sign was confirmed legible and correctly oriented
+from an ordinary walking screenshot instead, since the teleport hook's
+instantaneous 180°-facing write interacted with the camera's own turn-rate
+smoothing in a way ordinary play never exercises.

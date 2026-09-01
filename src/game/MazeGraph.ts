@@ -43,6 +43,9 @@ function buildCellRect(row: number, col: number): Rect {
 // The secret-door easter egg (see Maze.ts::SECRET_DOOR_CELL): bridges spawn's
 // own rect straight through to the secret cell's rect along the shared axis,
 // covering exactly the gap each cell's own rect stops short of on that side.
+// SECRET_DOOR_POSITION now sits well past the secret cell itself (see
+// Maze.ts), so this rect overlaps buildSecretPassageExtensionRect() below --
+// harmless, since rects only ever add legal area, never remove it.
 function buildSecretDoorRect(): Rect {
   const spawnZ = SPAWN_POINT.z;
   const secretZ = SECRET_DOOR_POSITION.z;
@@ -54,6 +57,22 @@ function buildSecretDoorRect(): Rect {
   };
 }
 
+// The secret passage now runs past the real grid's own southern boundary
+// (row MAZE_ROWS-1, the secret door's column) into new tunnel geometry
+// SceneManager builds beyond it. This rect picks up exactly where that row's
+// own cell rect stops -- flush, no gap, no double margin -- and runs to just
+// short of the new dead-end wall SceneManager caps the tunnel with.
+function buildSecretPassageExtensionRect(): Rect {
+  const gridEdgeZ = cellCenter(MAZE_ROWS - 1, SPAWN_CELL[1]).z + WALL_STOP;
+  const deadEndZ = SECRET_DOOR_POSITION.z + MAZE_CORRIDOR_HALF_WIDTH - WALL_STOP;
+  return {
+    minX: SPAWN_POINT.x - WALL_STOP,
+    maxX: SPAWN_POINT.x + WALL_STOP,
+    minZ: gridEdgeZ,
+    maxZ: deadEndZ,
+  };
+}
+
 export const COLLISION_RECTS: readonly Rect[] = (() => {
   const rects: Rect[] = [];
   for (let row = 0; row < MAZE_ROWS; row++) {
@@ -62,6 +81,7 @@ export const COLLISION_RECTS: readonly Rect[] = (() => {
     }
   }
   rects.push(buildSecretDoorRect());
+  rects.push(buildSecretPassageExtensionRect());
   return rects;
 })();
 

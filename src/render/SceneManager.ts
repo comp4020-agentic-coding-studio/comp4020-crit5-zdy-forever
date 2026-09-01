@@ -1,12 +1,16 @@
 import {
   AmbientLight,
   BoxGeometry,
+  CanvasTexture,
   Color,
+  DoubleSide,
   FogExp2,
   HemisphereLight,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
+  PlaneGeometry,
   PointLight,
   Scene,
   Vector3,
@@ -170,15 +174,19 @@ export class SceneManager {
         true,
         wallMaterial,
       );
-      const bottomCenter = cellCenter(MAZE_ROWS - 1, col);
-      const bottomRoom = openingsOf(MAZE_ROWS - 1, col);
-      this.buildWall(
-        bottomCenter.z + MAZE_CORRIDOR_HALF_WIDTH,
-        bottomCenter.x - (bottomRoom.leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
-        bottomCenter.x + (bottomRoom.rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
-        true,
-        wallMaterial,
-      );
+      // Skipped for the secret-passage column: that edge continues south
+      // into buildSecretPassageExtension()'s tunnel rather than closing here.
+      if (col !== SPAWN_CELL[1]) {
+        const bottomCenter = cellCenter(MAZE_ROWS - 1, col);
+        const bottomRoom = openingsOf(MAZE_ROWS - 1, col);
+        this.buildWall(
+          bottomCenter.z + MAZE_CORRIDOR_HALF_WIDTH,
+          bottomCenter.x - (bottomRoom.leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+          bottomCenter.x + (bottomRoom.rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH),
+          true,
+          wallMaterial,
+        );
+      }
 
       for (let row = 0; row < MAZE_ROWS - 1; row++) {
         const isSecretEdge = row === SECRET_EDGE_ROW && col === SECRET_EDGE_COL;
@@ -198,6 +206,7 @@ export class SceneManager {
     }
 
     this.buildSecretDoor(floorMaterial, ceilingMaterial);
+    this.buildSecretPassageExtension(floorMaterial, ceilingMaterial, wallMaterial);
   }
 
   // The easter-egg secret door (see Maze.ts::SECRET_DOOR_CELL): skipping the
@@ -232,11 +241,83 @@ export class SceneManager {
     const axis = SECRET_DOOR_AXIS;
     const doorLight = new PointLight(0x9a7ee0, 10, 9, 2);
     doorLight.position.set(
-      SECRET_DOOR_POSITION.x + axis.x * MAZE_CORRIDOR_HALF_WIDTH,
+      secretCenter.x + axis.x * MAZE_CORRIDOR_HALF_WIDTH,
       CORRIDOR_HEIGHT * 0.6,
-      SECRET_DOOR_POSITION.z + axis.z * MAZE_CORRIDOR_HALF_WIDTH,
+      secretCenter.z + axis.z * MAZE_CORRIDOR_HALF_WIDTH,
     );
     this.scene.add(doorLight);
+  }
+
+  // The secret passage now runs well past secretCenter (see
+  // Maze.ts::SECRET_DOOR_POSITION) into new tunnel geometry beyond the real
+  // grid's own southern boundary -- a plain dead-end corridor, closed on
+  // three sides, ending in its own light and EXIT sign so reaching it still
+  // reads as arriving somewhere, not just walking into a wall.
+  private buildSecretPassageExtension(
+    floorMaterial: MeshStandardMaterial,
+    ceilingMaterial: MeshStandardMaterial,
+    wallMaterial: MeshStandardMaterial,
+  ): void {
+    const gridEdgeZ = cellCenter(MAZE_ROWS - 1, SPAWN_CELL[1]).z + MAZE_CORRIDOR_HALF_WIDTH;
+    const deadEndZ = SECRET_DOOR_POSITION.z + MAZE_CORRIDOR_HALF_WIDTH;
+    const width = MAZE_CORRIDOR_HALF_WIDTH * 2;
+    const depth = deadEndZ - gridEdgeZ;
+    const midZ = (gridEdgeZ + deadEndZ) / 2;
+    const x = SECRET_DOOR_POSITION.x;
+
+    const floor = new Mesh(new BoxGeometry(width, 0.2, depth), floorMaterial);
+    floor.position.set(x, -0.1, midZ);
+    this.scene.add(floor);
+
+    const ceiling = new Mesh(new BoxGeometry(width, 0.2, depth), ceilingMaterial);
+    ceiling.position.set(x, CORRIDOR_HEIGHT + 0.1, midZ);
+    this.scene.add(ceiling);
+
+    this.buildWall(x - MAZE_CORRIDOR_HALF_WIDTH, gridEdgeZ, deadEndZ, false, wallMaterial);
+    this.buildWall(x + MAZE_CORRIDOR_HALF_WIDTH, gridEdgeZ, deadEndZ, false, wallMaterial);
+    this.buildWall(deadEndZ, x - MAZE_CORRIDOR_HALF_WIDTH, x + MAZE_CORRIDOR_HALF_WIDTH, true, wallMaterial);
+
+    const doorLight = new PointLight(0x9a7ee0, 8, 12, 2);
+    doorLight.position.set(x, CORRIDOR_HEIGHT * 0.6, deadEndZ - MAZE_CORRIDOR_HALF_WIDTH);
+    this.scene.add(doorLight);
+
+    this.buildExitSign(
+      new Vector3(x, CORRIDOR_HEIGHT - 0.5, deadEndZ - 0.05),
+      new Vector3(0, 0, -1),
+      0x9a7ee0,
+    );
+  }
+
+  // A black-backed "EXIT" placard rendered onto a CanvasTexture and applied
+  // to an unlit MeshBasicMaterial, so it reads clearly at any point in the
+  // light cycle (including a full blackout) rather than fading with the
+  // scene lighting the way the doorway PointLights do. facingDirection is
+  // the way a player arriving at this exit is walking -- rotation.y is set
+  // so the plane's local +Z (its visible face) points that way, i.e. towards
+  // whoever is approaching, not away from them.
+  private buildExitSign(position: Vector3, facingDirection: Vector3, color: number): void {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#050506";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const borderColor = `#${color.toString(16).padStart(6, "0")}`;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 8;
+    ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+    ctx.fillStyle = borderColor;
+    ctx.font = "bold 72px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("EXIT", canvas.width / 2, canvas.height / 2 + 4);
+
+    const texture = new CanvasTexture(canvas);
+    const material = new MeshBasicMaterial({ map: texture, side: DoubleSide });
+    const sign = new Mesh(new PlaneGeometry(1.6, 0.8), material);
+    sign.position.copy(position);
+    sign.rotation.y = Math.atan2(facingDirection.x, facingDirection.z);
+    this.scene.add(sign);
   }
 
   private buildMazeRoom(row: number, col: number, floorMaterial: MeshStandardMaterial, ceilingMaterial: MeshStandardMaterial): void {
@@ -328,6 +409,16 @@ export class SceneManager {
       EXIT_POSITION.z + axis.z * MAZE_CORRIDOR_HALF_WIDTH,
     );
     this.scene.add(exitLight);
+
+    this.buildExitSign(
+      new Vector3(
+        EXIT_POSITION.x + axis.x * (MAZE_CORRIDOR_HALF_WIDTH - 0.05),
+        CORRIDOR_HEIGHT - 0.5,
+        EXIT_POSITION.z + axis.z * (MAZE_CORRIDOR_HALF_WIDTH - 0.05),
+      ),
+      axis,
+      0x8fe0c8,
+    );
   }
 
   resize(width: number, height: number): void {
