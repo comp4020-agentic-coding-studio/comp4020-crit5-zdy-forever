@@ -3,8 +3,8 @@ import { MOVEMENT_THRESHOLD, REACTION_GRACE_PERIOD_SECONDS } from "./Constants.t
 
 // Pure rules -- no Three.js, no DOM, no wall clock beyond the deltas/elapsed
 // values passed in. This is exactly what spec/rules.test.ts exercises
-// directly: the one rule DON'T MOVE hangs off, moving in the dark brings the
-// ghost closer.
+// directly: the one rule DON'T MOVE hangs off, moving in the dark counts
+// toward death.
 
 export function isIllegalMovement(
   lightState: LightState,
@@ -16,20 +16,23 @@ export function isIllegalMovement(
   return movementMagnitude > MOVEMENT_THRESHOLD;
 }
 
-export function applyDarknessPenalty(
-  ghostDistance: number,
+// Cumulative seconds spent actually moving illegally in the dark -- never
+// resets except on a full game reset, so several short dashes across
+// separate dark cycles add up toward the same death threshold rather than
+// each getting a clean slate.
+export function accumulateDarknessSeconds(
+  accumulatedSeconds: number,
   lightState: LightState,
   movementMagnitude: number,
   darknessElapsedSeconds: number,
   deltaSeconds: number,
-  penaltyPerSecond: number,
 ): number {
-  if (!isIllegalMovement(lightState, movementMagnitude, darknessElapsedSeconds)) return ghostDistance;
-  return Math.max(0, ghostDistance - movementMagnitude * penaltyPerSecond * deltaSeconds);
+  if (!isIllegalMovement(lightState, movementMagnitude, darknessElapsedSeconds)) return accumulatedSeconds;
+  return accumulatedSeconds + deltaSeconds;
 }
 
-export function checkGhostCaught(ghostDistance: number, lossThreshold: number): boolean {
-  return ghostDistance <= lossThreshold;
+export function checkDarknessDeath(accumulatedSeconds: number, deathThresholdSeconds: number): boolean {
+  return accumulatedSeconds >= deathThresholdSeconds;
 }
 
 export function checkExitReached(distanceToExit: number, triggerRadius: number): boolean {

@@ -1,20 +1,15 @@
 import { Vector3 } from "three";
 import {
+  DARKNESS_DEATH_SECONDS,
   END_SCREEN_DELAY_SECONDS,
   EXIT_TRIGGER_RADIUS,
   FINAL_DARK_SECONDS,
   FINAL_STRETCH_DISTANCE_FROM_EXIT,
-  GHOST_INITIAL_DISTANCE,
-  GHOST_LOSS_THRESHOLD,
-  GHOST_PENALTY_PER_SECOND,
-  GHOST_TRAIL_MAX_ARC_LENGTH,
-  GHOST_TRAIL_MIN_SPACING,
 } from "./Constants.ts";
-import { applyDarknessPenalty, checkExitReached, checkGhostCaught, isIllegalMovement } from "./GameRules.ts";
+import { accumulateDarknessSeconds, checkDarknessDeath, checkExitReached, isIllegalMovement } from "./GameRules.ts";
 import { transition, type Phase } from "./GameState.ts";
-import { Ghost } from "./Ghost.ts";
 import { LightController } from "./LightController.ts";
-import { EXIT_POSITION, SPAWN_FORWARD, SPAWN_POINT } from "./Maze.ts";
+import { EXIT_POSITION, MAZE_COLS, SECRET_DOOR_POSITION, SPAWN_CELL, SPAWN_FORWARD, SPAWN_POINT } from "./Maze.ts";
 import { SPAWN_BFS_DISTANCE, bfsDistanceFromExit, cellOf } from "./MazeGraph.ts";
 import { Player } from "./Player.ts";
 
@@ -23,21 +18,21 @@ export interface Movement {
   readonly y: number;
 }
 
+function cellIndex(row: number, col: number): number {
+  return row * MAZE_COLS + col;
+}
+
 // Orchestrates the pure rules (GameRules/GameState) and the entities
-// (Player, Ghost, LightController) against real input and a real clock.
-// Nothing in here imports Three.js -- the render layer reads state back out.
+// (Player, LightController) against real input and a real clock. Nothing in
+// here imports Three.js -- the render layer reads state back out.
 export class Game {
   phase: Phase = "start";
   readonly player: Player;
-  readonly ghost: Ghost;
   readonly light: LightController;
 
-  // Breadcrumb trail of the player's actual world XZ positions, oldest
-  // first -- Ghost.positionBehind walks backward along it so the ghost's
-  // rendered position always sits on ground the player genuinely walked
-  // through the maze, never cutting through a wall. Purely a rendering
-  // concern; the actual ghost.distance rule below is unaffected.
-  readonly trail: Vector3[] = [];
+  // Grid cells the player has actually stood in, keyed by row*MAZE_COLS+col
+  // -- the minimap's fog-of-war reveal reads this directly.
+  readonly visitedCells = new Set<number>();
 
   // True for exactly the frames GameRules just penalised a move made in the
   // dark -- the render/audio layers read this to cue footsteps, rather than
@@ -45,6 +40,9 @@ export class Game {
   illegalMovementNow = false;
 
   private darknessElapsedSeconds = 0;
+  // Cumulative seconds of illegal movement in the dark -- see
+  // GameRules.accumulateDarknessSeconds. Only reset() clears it.
+  private darknessActionSeconds = 0;
   private endScreenTimer = 0;
   private finalStretchTriggered = false;
   // High-water mark of BFS-steps-to-exit reached so far -- never regresses,
@@ -55,9 +53,8 @@ export class Game {
 
   constructor() {
     this.player = new Player(SPAWN_POINT, SPAWN_FORWARD);
-    this.ghost = new Ghost();
     this.light = new LightController();
-    this.seedTrail();
+    this.visitedCells.add(cellIndex(SPAWN_CELL[0], SPAWN_CELL[1]));
   }
 
   // 0 at spawn, 1 at the exit -- keyed on the maze graph's own topology
@@ -67,9 +64,17 @@ export class Game {
     return 1 - Math.min(1, Math.max(0, this.minBfsDistanceReached / SPAWN_BFS_DISTANCE));
   }
 
+  // 0 (safe) to 1 (about to die) -- driven by cumulative illegal-movement
+  // seconds in the dark, not a proximity metric, since there's no longer a
+  // pursuer to be near. Drives the vignette, camera dread and audio danger
+  // cues in main.ts.
+  get danger(): number {
+    return Math.min(1, this.darknessActionSeconds / DARKNESS_DEATH_SECONDS);
+  }
+
   // null until a win/loss has landed AND its short reveal delay has passed.
   get endScreenText(): string | null {
-    if (this.phase === "lost" && this.endScreenTimer <= 0) return "FOUND";
+    if (this.phase === "lost" && this.endScreenTimer <= 0) return "DIE";
     if (this.phase === "won" && this.endScreenTimer <= 0) return "ESCAPED";
     return null;
   }
@@ -81,40 +86,16 @@ export class Game {
   reset(): void {
     this.player.position.copy(SPAWN_POINT);
     this.player.forward.copy(SPAWN_FORWARD).normalize();
-    this.ghost.reset();
     this.light.reset();
     this.darknessElapsedSeconds = 0;
+    this.darknessActionSeconds = 0;
     this.endScreenTimer = 0;
     this.finalStretchTriggered = false;
     this.minBfsDistanceReached = SPAWN_BFS_DISTANCE;
     this.illegalMovementNow = false;
-    this.seedTrail();
+    this.visitedCells.clear();
+    this.visitedCells.add(cellIndex(SPAWN_CELL[0], SPAWN_CELL[1]));
     this.phase = transition(this.phase, { type: "restart" });
-  }
-
-  private seedTrail(): void {
-    // Oldest (farthest behind) first, newest (the player's own position)
-    // last -- positionBehind walks backward from the last entry, so the
-    // order here has to match how updateTrail appends going forward.
-    this.trail.length = 0;
-    this.trail.push(SPAWN_POINT.clone().addScaledVector(SPAWN_FORWARD, -GHOST_INITIAL_DISTANCE));
-    this.trail.push(SPAWN_POINT.clone());
-  }
-
-  private updateTrail(): void {
-    const last = this.trail[this.trail.length - 1];
-    if (last.distanceTo(this.player.position) > GHOST_TRAIL_MIN_SPACING) {
-      this.trail.push(this.player.position.clone());
-    }
-
-    let arcLength = 0;
-    for (let i = this.trail.length - 1; i > 0; i--) {
-      arcLength += this.trail[i].distanceTo(this.trail[i - 1]);
-    }
-    while (arcLength > GHOST_TRAIL_MAX_ARC_LENGTH && this.trail.length > 2) {
-      arcLength -= this.trail[1].distanceTo(this.trail[0]);
-      this.trail.shift();
-    }
   }
 
   update(movement: Movement, groundForward: Vector3, groundRight: Vector3, deltaSeconds: number): void {
@@ -126,12 +107,19 @@ export class Game {
 
     this.moveDirection.copy(groundRight).multiplyScalar(movement.x).addScaledVector(groundForward, movement.y);
     this.player.move(this.moveDirection, deltaSeconds);
-    this.updateTrail();
 
     const [row, col] = cellOf(this.player.position);
+    this.visitedCells.add(cellIndex(row, col));
     this.minBfsDistanceReached = Math.min(this.minBfsDistanceReached, bfsDistanceFromExit(row, col));
 
     const distanceToExit = Math.hypot(EXIT_POSITION.x - this.player.position.x, EXIT_POSITION.z - this.player.position.z);
+    // The easter-egg secret door behind spawn (see Maze.ts::SECRET_DOOR_CELL)
+    // wins the same way the real exit does -- same trigger radius, same
+    // transition, same end text.
+    const distanceToSecretDoor = Math.hypot(
+      SECRET_DOOR_POSITION.x - this.player.position.x,
+      SECRET_DOOR_POSITION.z - this.player.position.z,
+    );
     // Gated on both the geometric distance AND the graph distance, so a
     // dead end that happens to sit physically close to the exit (through a
     // wall) can't misfire the forced-blackout finale.
@@ -149,19 +137,21 @@ export class Game {
 
     const movementMagnitude = Math.hypot(movement.x, movement.y);
     this.illegalMovementNow = isIllegalMovement(this.light.state, movementMagnitude, this.darknessElapsedSeconds);
-    this.ghost.distance = applyDarknessPenalty(
-      this.ghost.distance,
+    this.darknessActionSeconds = accumulateDarknessSeconds(
+      this.darknessActionSeconds,
       this.light.state,
       movementMagnitude,
       this.darknessElapsedSeconds,
       deltaSeconds,
-      GHOST_PENALTY_PER_SECOND,
     );
 
-    if (checkGhostCaught(this.ghost.distance, GHOST_LOSS_THRESHOLD)) {
-      this.phase = transition(this.phase, { type: "ghostCaught" });
+    if (checkDarknessDeath(this.darknessActionSeconds, DARKNESS_DEATH_SECONDS)) {
+      this.phase = transition(this.phase, { type: "diedInDarkness" });
       this.endScreenTimer = END_SCREEN_DELAY_SECONDS;
-    } else if (checkExitReached(distanceToExit, EXIT_TRIGGER_RADIUS)) {
+    } else if (
+      checkExitReached(distanceToExit, EXIT_TRIGGER_RADIUS) ||
+      checkExitReached(distanceToSecretDoor, EXIT_TRIGGER_RADIUS)
+    ) {
       this.phase = transition(this.phase, { type: "exitReached" });
       this.endScreenTimer = END_SCREEN_DELAY_SECONDS;
     }

@@ -115,6 +115,17 @@ export const EXIT_DOOR_AXIS: Vector3 = (() => {
   return cellCenter(nRow, nCol).sub(EXIT_POSITION).normalize();
 })();
 
+// Easter egg: spawn is a degree-1 node, so turning 180deg from SPAWN_FORWARD
+// and walking forward always faces the one wall that's normally closed. This
+// cell sits directly behind it -- MazeGraph and SceneManager each special-case
+// just that one edge to open a secret door there, independent of
+// isVerticalOpen/neighboursOf (so the real graph's BFS distances, dead-end
+// count and spanning-tree property, all documented elsewhere, are untouched;
+// this shortcut deliberately isn't part of the "real" maze).
+export const SECRET_DOOR_CELL: readonly [number, number] = [SPAWN_CELL[0] + 1, SPAWN_CELL[1]];
+export const SECRET_DOOR_POSITION: Vector3 = cellCenter(SECRET_DOOR_CELL[0], SECRET_DOOR_CELL[1]);
+export const SECRET_DOOR_AXIS: Vector3 = SPAWN_POINT.clone().sub(SECRET_DOOR_POSITION).normalize();
+
 // Ceiling light fixtures: one per open cell (including spawn/exit), at the
 // cell centre. A handful near early dead-end branches flicker constantly
 // regardless of game state -- the same cosmetic foreshadowing the straight

@@ -43,15 +43,34 @@ problems with mise.
 
 ## What's here
 
-- `index.html`, `styles.css`, `main.ts` --- a minimal starting site. Replace it.
+`DON'T MOVE`: a first-person maze game where a light keeps cutting out, and
+moving while it's dark for too long, cumulatively, across the whole run, is
+what kills you.
+
+- `index.html`, `styles.css`, `main.ts` --- the page shell and entry point.
+- `src/game/` --- game logic: `Game.ts` drives the loop; `Player.ts`,
+  `LightController.ts`, `GameRules.ts`, `GameState.ts` own player movement,
+  the light cycle, win/lose rules, and phase state; `Maze.ts`/`MazeGraph.ts`
+  hold the baked maze layout and its graph; `Constants.ts` centralises every
+  tunable number.
+- `src/render/SceneManager.ts` --- builds and updates the Three.js scene
+  (rooms, walls, camera) from game state.
+- `src/input/` --- `KeyboardInput.ts` and `TouchJoystick.ts`, merged by
+  `InputManager.ts` into one movement vector.
+- `src/audio/AudioManager.ts` --- footsteps and win/loss stingers.
+- `src/ui/EndScreen.ts` --- the win/loss overlay and restart button;
+  `src/ui/Minimap.ts` --- the fixed, fog-of-war minimap of explored cells.
+- `scripts/generate-maze.ts` --- regenerates the baked maze in `Maze.ts`;
+  `scripts/check-evidence.ts` is the process-evidence gate `pnpm
+  check:evidence` runs.
 - `mise.toml` --- the tested Node and pnpm versions for this template.
-- `spec/` --- what the checks are for (`README.md`) and the shipped invariants
-  (`invariants.test.ts`); the spec tests you write live alongside them.
+- `spec/` --- what the checks are for (`README.md`), the shipped invariants
+  (`invariants.test.ts`), and this prototype's own spec/rule tests
+  (`game.test.ts`, `rules.test.ts`).
 - `CLAUDE.md` --- orients whoever works in this repo, you or a coding agent.
   Yours to grow.
-- `PROCESS.md` --- a template for your process overview, showing the
-  cited-moment format. Replace it with your own; `pnpm check:evidence` verifies
-  your citations resolve.
+- `PROCESS.md` --- the cited-moment process log for this prototype;
+  `pnpm check:evidence` verifies its citations resolve.
 - `.github/workflows/checks.yml` --- the CI sensors that run on every push once
   your repo is public, and the GitHub Pages deploy.
 - `.githooks/pre-commit` --- blocks any commit that contains something shaped

@@ -1,7 +1,6 @@
 import {
   AmbientLight,
   BoxGeometry,
-  CapsuleGeometry,
   Color,
   FogExp2,
   HemisphereLight,
@@ -10,7 +9,6 @@ import {
   PerspectiveCamera,
   PointLight,
   Scene,
-  SphereGeometry,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -30,6 +28,10 @@ import {
   LIGHT_FIXTURE_POSITIONS,
   MAZE_COLS,
   MAZE_ROWS,
+  SECRET_DOOR_AXIS,
+  SECRET_DOOR_CELL,
+  SECRET_DOOR_POSITION,
+  SPAWN_CELL,
   cellCenter,
   isHorizontalOpen,
   isVerticalOpen,
@@ -41,11 +43,20 @@ const FALLBACK_FORWARD = new Vector3(0, 0, -1);
 const AMBIENT_BASE_INTENSITY = 1.1;
 const HEMISPHERE_BASE_INTENSITY = 0.85;
 const FIXTURE_LIGHT_BASE_INTENSITY = 4.5;
-const GHOST_CAPSULE_RADIUS = 0.3;
-const GHOST_CAPSULE_LENGTH = 2.2;
-const GHOST_MESH_HALF_HEIGHT = GHOST_CAPSULE_LENGTH / 2 + GHOST_CAPSULE_RADIUS;
 const HALF_PITCH = MAZE_CELL_SIZE / 2;
 const WALL_THICKNESS = 0.2;
+// The edge the vertical-wall loop in buildMaze() must skip for the secret
+// door (see Maze.ts::SECRET_DOOR_CELL) -- that loop addresses an edge by the
+// row *above* it, so this is one less than the lower of the two cell rows.
+const SECRET_EDGE_ROW = Math.min(SPAWN_CELL[0], SECRET_DOOR_CELL[0]);
+const SECRET_EDGE_COL = SPAWN_CELL[1];
+// A closed *internal* edge's wall sits at HALF_PITCH from each bordering
+// cell's centre, not at MAZE_CORRIDOR_HALF_WIDTH -- that constant is only
+// where a *boundary* closed edge's wall actually is. A room's floor/ceiling
+// footprint must stop at whichever one actually borders it, or the room falls
+// short of the wall it's supposed to butt up against, leaving a gap between
+// the floor and the wall the player can see through/into.
+const WALL_NEAR_FACE = HALF_PITCH - WALL_THICKNESS / 2;
 
 // Builds the Three.js scene once and exposes small, focused update methods
 // so the pure game layer (src/game) never has to import Three.js itself.
@@ -54,15 +65,14 @@ export class SceneManager {
   readonly camera: PerspectiveCamera;
 
   private readonly renderer: WebGLRenderer;
-  private readonly ghostMesh: Mesh;
   private readonly ambientLight: AmbientLight;
   private readonly hemisphereLight: HemisphereLight;
   private readonly fixtureLights: PointLight[] = [];
   private readonly fixtureMaterials: MeshStandardMaterial[] = [];
   private flickerClock = 0;
 
-  // How close the ghost is (0 = far, 1 = right on top of the player) --
-  // drives a very small camera jitter, skipped entirely under
+  // How close to death the player is (0 = safe, 1 = about to die) -- drives
+  // a very small camera jitter, skipped entirely under
   // prefers-reduced-motion.
   private dread = 0;
   private readonly reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -88,27 +98,14 @@ export class SceneManager {
     this.buildMaze();
     this.buildFixtures();
     this.buildExit();
-
-    // Tall, narrow, desaturated, and deliberately not emissive -- it has no
-    // light of its own, so it only reads clearly once the corridor's own
-    // lights come back on.
-    this.ghostMesh = new Mesh(
-      new CapsuleGeometry(GHOST_CAPSULE_RADIUS, GHOST_CAPSULE_LENGTH, 4, 8),
-      new MeshStandardMaterial({ color: 0xaab4b8, roughness: 0.95, flatShading: true }),
-    );
-    const head = new Mesh(
-      new SphereGeometry(0.22, 6, 5),
-      new MeshStandardMaterial({ color: 0x9aa4a8, roughness: 1, flatShading: true }),
-    );
-    head.position.y = GHOST_CAPSULE_LENGTH / 2 + 0.18;
-    this.ghostMesh.add(head);
-    this.scene.add(this.ghostMesh);
   }
 
   // One floor+ceiling pair per cell (its footprint extended flush to the
-  // cell boundary on every open side, stopping at MAZE_CORRIDOR_HALF_WIDTH
-  // on every closed one -- open neighbours' footprints meet exactly at the
-  // shared boundary, no gap and no overlap), plus one wall per closed edge
+  // cell boundary on every open side; on a closed side, flush to the
+  // boundary wall at MAZE_CORRIDOR_HALF_WIDTH if that side is the grid's
+  // outer edge, or flush to the internal wall's near face at
+  // WALL_NEAR_FACE otherwise -- either way the floor meets the wall it
+  // actually borders, no gap and no overlap), plus one wall per closed edge
   // (built once from the edge/boundary loops below, not once per adjoining
   // cell, so a closed internal edge never gets a doubled-up wall mesh).
   private buildMaze(): void {
@@ -184,7 +181,8 @@ export class SceneManager {
       );
 
       for (let row = 0; row < MAZE_ROWS - 1; row++) {
-        if (!isVerticalOpen(row, col)) {
+        const isSecretEdge = row === SECRET_EDGE_ROW && col === SECRET_EDGE_COL;
+        if (!isVerticalOpen(row, col) && !isSecretEdge) {
           const a = cellCenter(row, col);
           const top = openingsOf(row, col);
           const bottom = openingsOf(row + 1, col);
@@ -198,16 +196,57 @@ export class SceneManager {
         }
       }
     }
+
+    this.buildSecretDoor(floorMaterial, ceilingMaterial);
+  }
+
+  // The easter-egg secret door (see Maze.ts::SECRET_DOOR_CELL): skipping the
+  // wall on that one edge above leaves each room's own floor/ceiling short of
+  // meeting the other by exactly WALL_THICKNESS (both still stop at their own
+  // near face, since openingsOf() still reports the edge closed) -- patched
+  // here with one small bridging floor/ceiling pair, plus a dim, differently
+  // -coloured light that marks the doorway without advertising it the way the
+  // always-on exit glow does.
+  private buildSecretDoor(floorMaterial: MeshStandardMaterial, ceilingMaterial: MeshStandardMaterial): void {
+    const spawnCenter = cellCenter(SPAWN_CELL[0], SPAWN_CELL[1]);
+    const secretCenter = cellCenter(SECRET_DOOR_CELL[0], SECRET_DOOR_CELL[1]);
+    const minZ = Math.min(spawnCenter.z, secretCenter.z) + WALL_NEAR_FACE;
+    const maxZ = Math.max(spawnCenter.z, secretCenter.z) - WALL_NEAR_FACE;
+    const width = MAZE_CORRIDOR_HALF_WIDTH * 2;
+    const depth = maxZ - minZ;
+    const midZ = (minZ + maxZ) / 2;
+
+    const floor = new Mesh(new BoxGeometry(width, 0.2, depth), floorMaterial);
+    floor.position.set(spawnCenter.x, -0.1, midZ);
+    this.scene.add(floor);
+
+    const ceiling = new Mesh(new BoxGeometry(width, 0.2, depth), ceilingMaterial);
+    ceiling.position.set(spawnCenter.x, CORRIDOR_HEIGHT + 0.1, midZ);
+    this.scene.add(ceiling);
+
+    // Brighter than the exit's glow ratio would suggest -- this doorway sits
+    // right by spawn, where the darkness cycle has had essentially zero
+    // progress to work with, so it's always viewed at full ambient/fixture
+    // brightness. A subtler value (tried first) simply vanished next to the
+    // full-intensity ceiling fixture sharing its cell.
+    const axis = SECRET_DOOR_AXIS;
+    const doorLight = new PointLight(0x9a7ee0, 10, 9, 2);
+    doorLight.position.set(
+      SECRET_DOOR_POSITION.x + axis.x * MAZE_CORRIDOR_HALF_WIDTH,
+      CORRIDOR_HEIGHT * 0.6,
+      SECRET_DOOR_POSITION.z + axis.z * MAZE_CORRIDOR_HALF_WIDTH,
+    );
+    this.scene.add(doorLight);
   }
 
   private buildMazeRoom(row: number, col: number, floorMaterial: MeshStandardMaterial, ceilingMaterial: MeshStandardMaterial): void {
     const center = cellCenter(row, col);
     const { leftOpen, rightOpen, upOpen, downOpen } = openingsOf(row, col);
 
-    const minX = center.x - (leftOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
-    const maxX = center.x + (rightOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
-    const minZ = center.z - (upOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
-    const maxZ = center.z + (downOpen ? HALF_PITCH : MAZE_CORRIDOR_HALF_WIDTH);
+    const minX = center.x - (leftOpen ? HALF_PITCH : col === 0 ? MAZE_CORRIDOR_HALF_WIDTH : WALL_NEAR_FACE);
+    const maxX = center.x + (rightOpen ? HALF_PITCH : col === MAZE_COLS - 1 ? MAZE_CORRIDOR_HALF_WIDTH : WALL_NEAR_FACE);
+    const minZ = center.z - (upOpen ? HALF_PITCH : row === 0 ? MAZE_CORRIDOR_HALF_WIDTH : WALL_NEAR_FACE);
+    const maxZ = center.z + (downOpen ? HALF_PITCH : row === MAZE_ROWS - 1 ? MAZE_CORRIDOR_HALF_WIDTH : WALL_NEAR_FACE);
     const width = maxX - minX;
     const depth = maxZ - minZ;
     const midX = (minX + maxX) / 2;
@@ -306,10 +345,6 @@ export class SceneManager {
     const targetHorizontalFovRad = 2 * Math.atan(Math.tan(baseFovRad / 2) * CAMERA_FOV_REFERENCE_ASPECT);
     const verticalFovRad = 2 * Math.atan(Math.tan(targetHorizontalFovRad / 2) / aspect);
     return Math.min((verticalFovRad * 180) / Math.PI, CAMERA_FOV_MAX_DEGREES);
-  }
-
-  syncGhost(position: Vector3): void {
-    this.ghostMesh.position.copy(position).setY(GHOST_MESH_HALF_HEIGHT);
   }
 
   // 0 (calm) to 1 (right on top of the player). Read live each frame rather

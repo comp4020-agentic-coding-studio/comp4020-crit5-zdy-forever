@@ -1,6 +1,16 @@
 import { Vector3 } from "three";
 import { MAZE_CELL_SIZE, MAZE_CORRIDOR_HALF_WIDTH, PLAYER_COLLISION_RADIUS } from "./Constants.ts";
-import { EXIT_CELL, MAZE_COLS, MAZE_ROWS, SPAWN_CELL, cellCenter, neighboursOf, openingsOf } from "./Maze.ts";
+import {
+  EXIT_CELL,
+  MAZE_COLS,
+  MAZE_ROWS,
+  SECRET_DOOR_POSITION,
+  SPAWN_CELL,
+  SPAWN_POINT,
+  cellCenter,
+  neighboursOf,
+  openingsOf,
+} from "./Maze.ts";
 
 export interface Rect {
   minX: number;
@@ -30,6 +40,20 @@ function buildCellRect(row: number, col: number): Rect {
   };
 }
 
+// The secret-door easter egg (see Maze.ts::SECRET_DOOR_CELL): bridges spawn's
+// own rect straight through to the secret cell's rect along the shared axis,
+// covering exactly the gap each cell's own rect stops short of on that side.
+function buildSecretDoorRect(): Rect {
+  const spawnZ = SPAWN_POINT.z;
+  const secretZ = SECRET_DOOR_POSITION.z;
+  return {
+    minX: SPAWN_POINT.x - WALL_STOP,
+    maxX: SPAWN_POINT.x + WALL_STOP,
+    minZ: Math.min(spawnZ, secretZ) + WALL_STOP,
+    maxZ: Math.max(spawnZ, secretZ) - WALL_STOP,
+  };
+}
+
 export const COLLISION_RECTS: readonly Rect[] = (() => {
   const rects: Rect[] = [];
   for (let row = 0; row < MAZE_ROWS; row++) {
@@ -37,6 +61,7 @@ export const COLLISION_RECTS: readonly Rect[] = (() => {
       rects.push(buildCellRect(row, col));
     }
   }
+  rects.push(buildSecretDoorRect());
   return rects;
 })();
 

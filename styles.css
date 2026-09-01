@@ -141,6 +141,17 @@ main {
   }
 }
 
+.minimap {
+  position: absolute;
+  top: calc(1rem + var(--safe-top));
+  left: calc(1rem + var(--safe-left));
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: rgb(3 3 4 / 55%);
+}
+
 .joystick {
   position: absolute;
   left: calc(2rem + var(--safe-left));

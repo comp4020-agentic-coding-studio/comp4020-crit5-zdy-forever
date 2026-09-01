@@ -2,7 +2,7 @@ export type Phase = "start" | "playing" | "won" | "lost";
 
 export type GameEvent =
   | { readonly type: "start" }
-  | { readonly type: "ghostCaught" }
+  | { readonly type: "diedInDarkness" }
   | { readonly type: "exitReached" }
   | { readonly type: "restart" };
 
@@ -13,7 +13,7 @@ export function transition(phase: Phase, event: GameEvent): Phase {
   switch (event.type) {
     case "start":
       return phase === "start" ? "playing" : phase;
-    case "ghostCaught":
+    case "diedInDarkness":
       return phase === "playing" ? "lost" : phase;
     case "exitReached":
       return phase === "playing" ? "won" : phase;

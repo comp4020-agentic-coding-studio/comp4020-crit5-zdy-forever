@@ -51,11 +51,12 @@ what was already proven to work, not by picking arbitrarily:
 - **Penalised, not blocked.** The brief describes moving in the dark as a
   temptation the player can give in to, not an input that stops working.
   Movement always goes exactly where input says; a separate rule
-  (`GameRules.applyDarknessPenalty`) shrinks the hidden `ghostDistance` value
-  when the light is out, past a short reaction grace period, if the movement
-  input is above a small threshold. This is also what makes "moving during
-  darkness brings the ghost closer" an actual testable claim rather than a
-  tautology about disabled input.
+  (`GameRules.accumulateDarknessSeconds`) adds to a hidden cumulative
+  darkness-action-seconds counter when the light is out, past a short
+  reaction grace period, if the movement input is above a small threshold.
+  This is also what makes "moving during darkness accumulates seconds toward
+  death" an actual testable claim rather than a tautology about disabled
+  input.
 - **A 4-phase machine, not 6.** The brief's own suggested state list was
   offered as an example. `start | playing | won | lost` (the same shape
   `GameState.ts` already used) is enough — the scripted win/loss sequence
@@ -84,29 +85,27 @@ what was already proven to work, not by picking arbitrarily:
   a graph-topology one, since a maze's straight-line distance to the exit can
   cut through walls a real path can't.
 - `src/game/GameRules.ts` — pure functions, no Three.js or DOM:
-  `isIllegalMovement`, `applyDarknessPenalty`, `checkGhostCaught`,
+  `isIllegalMovement`, `accumulateDarknessSeconds`, `checkDarknessDeath`,
   `checkExitReached`. This is what `spec/rules.test.ts` exercises directly.
 - `src/game/LightController.ts` — the on → warning → dark → on cycle, with
-  durations drawn from the progress-keyed tier; the warning phase is a
-  handful of deliberate ~2 Hz pulses, not rapid flicker, so it never crosses
-  into strobe territory.
-- `src/game/Ghost.ts` — a `distance` scalar plus `positionBehind`, which walks
-  backward along `Game`'s breadcrumb trail of the player's actual world
-  positions (not a straight centreline, now that the corridor is a maze) to
-  find the point exactly `distance` units of *real path* behind the player —
-  so turning around via the camera mechanism reveals where it actually is,
-  never a ghost floating through a wall.
+  durations drawn from the progress-keyed tier; the warning phase picks one
+  of four flicker patterns at random each time it's entered (a steady
+  alternation, a smooth breathing pulse, a slower/deeper alternation, and a
+  decaying "dying bulb" wobble), all built to the same accessibility floor —
+  no state change faster than ~0.25–0.35s, so none of them cross into
+  rapid-strobe territory.
 - `src/game/Player.ts` — candidate-move-then-axis-separated-slide collision
   against `MazeGraph`'s rects (try the full 2D step, then X-only, then
   Z-only, else don't move), replacing the old single-axis corridor clamp;
   keeps the turn-rate-limited facing described above unchanged.
 - `src/game/Game.ts` — orchestrates the above against real input and a real
-  clock; owns the darkness-elapsed bookkeeping, the breadcrumb trail (append
-  on movement past a minimum spacing, prune from the old end past a max arc
-  length), and a high-water-mark BFS progress metric that never eases back
-  down after a wrong turn; exposes `illegalMovementNow` for one frame at a
-  time so the render/audio layers can cue footsteps without re-deriving the
-  rule.
+  clock; owns the darkness-elapsed bookkeeping, a cumulative
+  darkness-action-seconds counter that only `reset()` clears (see the dated
+  entry below for why it's whole-run cumulative rather than per-blackout), a
+  `visitedCells` set feeding the minimap's fog-of-war, and a high-water-mark
+  BFS progress metric that never eases back down after a wrong turn; exposes
+  `illegalMovementNow` for one frame at a time so the render/audio layers can
+  cue footsteps without re-deriving the rule.
 - `src/render/SceneManager.ts` — per-cell maze geometry (one floor/ceiling box
   per open room footprint, one wall box per closed edge or grid boundary,
   built from the same `openingsOf` helper as the collision model), per-fixture
@@ -114,9 +113,14 @@ what was already proven to work, not by picking arbitrarily:
   by `EXIT_DOOR_AXIS`, and a first-person camera pinned to the player's eye
   position (`CAMERA_EYE_HEIGHT`) looking exactly along `forward` -- no
   position lag, since `forward` itself already eases toward the movement
-  direction at a capped turn rate. There is no player body mesh; the camera
-  sits where it would have been. World "up" is always `(0, 1, 0)`, so no
-  per-frame quaternion realignment is needed.
+  direction at a capped turn rate. There is no player body mesh and, since
+  the dated entry below, no pursuer mesh either; the camera sits where it
+  would have been. World "up" is always `(0, 1, 0)`, so no per-frame
+  quaternion realignment is needed.
+- `src/ui/Minimap.ts` — a fixed-orientation Canvas2D minimap in the top-left
+  corner, drawn from `Game.visitedCells` and `Maze.openingsOf` so only cells
+  the player has actually stood in are shown, with wall-line borders on their
+  closed sides; only the player's facing tick rotates, never the map itself.
 - `src/audio/AudioManager.ts` — procedural WebAudio only, gated on the same
   start-button gesture as before: an always-on ambient hum, a heartbeat and a
   breathing layer that fade in as danger rises, footstep thumps cued by
@@ -345,3 +349,147 @@ parametrization as last time meant only `src/game/Maze.ts` and
 (29/29). Verified live via a headless render from the new spawn cell and its
 T-junction neighbour, matching the new layout's bitstrings with no wall
 gaps.
+
+**Internal walls floated clear of the floor on both flanks.** Reported
+during a playtest as clipping/gap-through-geometry at two corridors, distinct
+from the earlier "closed walls didn't cover the rooms" bug -- that one fixed
+each wall's span along its *long* axis; this one is a gap along its *short*
+axis, invisible to the same T-junction screenshot check used last time.
+`buildMazeRoom()` stopped a room's floor/ceiling at `MAZE_CORRIDOR_HALF_WIDTH`
+(1.9) on *every* closed side, but that's only where a *boundary* wall (the
+outer edge of the grid) actually sits -- an *internal* wall between two real
+cells sits at the cell-pitch midpoint (`HALF_PITCH`, 3.25) instead, so every
+one of the maze's 9 internal closed edges left a floor stopping roughly 1.25
+units short of the wall standing on nothing beyond it, on both bordering
+rooms. Screenshots couldn't confirm this directly -- the horror lighting
+(`FogExp2` density 0.035, background `0x040406`) renders any unlit corridor
+near-black regardless of geometry, so a temporary Vitest script
+(`scripts/_tmp-wall-audit.test.ts`, deleted after use, never committed)
+replicated `buildMazeRoom`'s and `buildWall`'s exact math from the real
+exported `Maze.ts`/`Constants.ts` functions and reported every wall's gap to
+the floor it should border. Before the fix: all 9 internal walls, 0
+boundary walls. Fixed by having `buildMazeRoom()` check, per side, whether
+`row`/`col` puts it at the grid's outer boundary (keep
+`MAZE_CORRIDOR_HALF_WIDTH`) or an internal edge (extend to
+`HALF_PITCH - WALL_THICKNESS / 2`, the wall's own near face) -- re-running the
+same audit script confirmed every internal wall now sits exactly flush
+against both bordering floors, zero gap and zero overlap. Collision needed no
+fix, same as last time (`MazeGraph.ts`'s rects are independent of wall mesh
+position). Only `SceneManager.ts` changed; `pnpm check` stayed green
+(29/29).
+
+**Pursuer removed; death switched from distance to cumulative darkness-action
+time; warning-light flicker randomised; a fog-of-war minimap added.** Direct
+request:
+
+> 被鬼抓到到found改成DIE 然后去掉鬼的建模 判定die改成在黑暗中行动多少秒
+> 然后灯光多做几组动效每次随机选择 左上角开一个小地图 固定不旋转 然后可以
+> 看到自己已开发的区域
+> ("change the caught-by-the-ghost 'FOUND' text to 'DIE'; remove the ghost's
+> model; change the death judgment to how many seconds you've moved in the
+> dark; add several more light animation variants, one picked at random each
+> time; open a minimap in the top-left, fixed and non-rotating, showing the
+> area you've already explored")
+
+One open design question: whether the darkness-action counter should
+accumulate across the whole run or reset every dark cycle. Put to the player
+directly via `AskUserQuestion` rather than assumed; they chose whole-run
+cumulative, so several short lapses across separate blackouts now add up
+toward the same death threshold instead of each getting a clean slate.
+
+Removing the ghost as a rendered, positioned entity made its whole supporting
+apparatus dead code, not just the mesh: `Ghost.ts` (the `distance` scalar and
+`positionBehind`) and `Game`'s breadcrumb `trail` (which existed solely to
+give the ghost mesh a real path to walk backward along) both existed to
+answer "where does the pursuer's body sit", a question that no longer has
+meaning once there's no body — both deleted outright rather than patched
+around. `GameRules.applyDarknessPenalty`/`checkGhostCaught` were renamed to
+`accumulateDarknessSeconds`/`checkDarknessDeath` and re-derived from a
+decrementing distance budget to a monotonically-increasing seconds counter
+against `DARKNESS_DEATH_SECONDS` (3, kept at roughly the old budget's order of
+magnitude — see the corridor-era fairness trace above for where that budget
+came from); `GameState`'s `ghostCaught` event became `diedInDarkness`. The old
+ghost-proximity `danger` formula in `main.ts` (`clamp((ghostDistance -
+threshold) / (initial - threshold), ...)`) moved into `Game.danger`
+(`darknessActionSeconds / DARKNESS_DEATH_SECONDS`, clamped to 1), still
+driving the same vignette/camera-dread/audio cues as before.
+
+The warning-light flicker went from one fixed ~2 Hz alternation to a
+4-pattern array (`LightController.WARNING_PATTERNS`) sampled with
+`Math.random()` every time the light re-enters `"warning"`: the original
+steady alternation, a slower/deeper alternation, a continuous sine "breathing"
+pulse with no hard cuts, and a decaying wobble that reads as the bulb actually
+failing. Every pattern was written to keep the same ≥0.25–0.35s
+state-change floor the original relied on to stay clear of strobe thresholds,
+rather than letting the random choice introduce a faster one by accident.
+
+The minimap (`src/ui/Minimap.ts`) reveals only `Game.visitedCells` — grid
+cells the player has actually stood in, keyed off the same `cellOf()` call
+`Game.update()` already made for BFS progress tracking, so tracking it cost
+one `Set.add()` and no new per-frame computation. Its canvas is hand-authored
+in `index.html` rather than created at runtime, per this repo's own
+`CLAUDE.md` note that a build-time-only tool like Vite never executes
+runtime JS, so a jsdom-based spec test parsing `dist/index.html` would never
+see a script-created element. Wall-line borders reuse `Maze.openingsOf()`
+rather than re-deriving which sides are walls, so the minimap and the
+collision model can't disagree about where an opening is. The map's own
+orientation never changes; only a short facing tick drawn from
+`player.forward` rotates around the player's dot.
+
+Verified: `pnpm check` green (29/29, including the rewritten
+`spec/rules.test.ts` against the renamed rule functions and event). Manually
+in the dev server: losing shows `DIE` with no ghost geometry anywhere in the
+scene; deliberately dashing through several dark periods dies only once the
+cumulative total clears the threshold, not on the first short dash and not
+never; the vignette/heartbeat still ramp smoothly with `Game.danger`; several
+consecutive warning phases visibly used different flicker patterns with none
+reading as rapid strobing; the top-left minimap grew to cover only cells
+actually walked, stayed fixed while turning in place, and only its facing
+tick rotated.
+
+**Secret door easter egg behind spawn.** Direct request:
+
+> 然后加一个小彩蛋 出生点转身180 再向前走也会出现一个门 走过去就通关了
+> ("also add a small easter egg: at spawn, turn around 180 degrees, walk
+> forward, and there's a door there too — walking through it wins the game")
+
+Spawn (`SPAWN_CELL`) is a degree-1 node in the maze's spanning tree, so three
+of its four sides are legitimately closed and only one — the real path —
+is open. The cell directly behind it (`SPAWN_CELL[0]+1, SPAWN_CELL[1]`,
+already a real, connected maze cell reachable the normal way from elsewhere)
+sits behind the closed edge a 180° turn faces. Rather than touch
+`isVerticalOpen`/`isHorizontalOpen`/`neighboursOf` — which would corrupt
+every property computed from them elsewhere in this file (spanning-tree/
+no-cycles, `SPAWN_BFS_DISTANCE`, dead-end counts, `bfsDistanceFromExit`
+tiering) — the shortcut was added as three independent, additive
+special-cases that never touch the real graph functions:
+`MazeGraph.ts` gets one extra `Rect` appended to `COLLISION_RECTS`, built
+directly from `SPAWN_POINT`/`SECRET_DOOR_POSITION` rather than derived from
+`openingsOf()`; `SceneManager.buildMaze()`'s vertical-wall loop special-cases
+exactly that one edge to skip building a wall there, patched with one small
+bridging floor/ceiling pair (`buildSecretDoor`) sized the same way the real
+per-cell rooms already are; and `Game.update()` adds a second
+`checkExitReached` distance check against `SECRET_DOOR_POSITION`, reusing the
+same trigger radius, transition, and `"ESCAPED"` end text as the real exit.
+`openingsOf`/`neighboursOf` themselves are unmodified, so every value derived
+from them is provably unchanged.
+
+Verified end-to-end, not just by type/build: a headless Playwright session
+against the real dev server drove `KeyS` (backward, i.e. toward the door from
+spawn) and confirmed `phase` reached `"won"`; a second run confirmed the
+`ESCAPED` end screen actually renders. Screenshotting the corridor itself
+surfaced a real issue the type/build/test checks couldn't catch: the new
+`doorLight` (`PointLight(0x9a7ee0, 3, 10, 2)`) was essentially invisible next
+to the full-intensity warm ceiling fixture sharing its cell — unlike the
+real exit's glow, which is only ever seen once the light cycle has darkened
+toward the end of a run, this doorway sits right at spawn, where the cycle
+has had zero progress to work with and is always at full "on" brightness.
+Diagnosed live by exposing a temporary debug hook (position/forward teleport,
+scene point-light introspection, reverted before commit, no trace left in
+`main.ts`) that confirmed the light existed with the right position/color but
+was simply outmatched; retuned by trial screenshots at several
+intensity/distance pairs until the violet tint was clearly visible against
+the same ceiling fixture, landing on `PointLight(0x9a7ee0, 10, 9, 2)`.
+Verified with `pnpm check` (29/29 green) and a final headless screenshot pass
+confirming the retuned light, the gapless floor/ceiling patch, and the
+`ESCAPED` end screen all render correctly.

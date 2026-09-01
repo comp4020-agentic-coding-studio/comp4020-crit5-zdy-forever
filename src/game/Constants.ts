@@ -24,12 +24,6 @@ export const MAZE_CELL_SIZE = 6.5;
 export const MAZE_CORRIDOR_HALF_WIDTH = 1.9;
 export const PLAYER_COLLISION_RADIUS = 0.35;
 
-// Breadcrumb-trail bounds for Ghost.positionBehind -- see Ghost.ts. The cap
-// only needs headroom over GHOST_INITIAL_DISTANCE (below), since distance
-// only ever shrinks except on reset().
-export const GHOST_TRAIL_MIN_SPACING = 0.15;
-export const GHOST_TRAIL_MAX_ARC_LENGTH = 30;
-
 // Light-cycle durations by difficulty tier -- see LightController.ts. Ranges
 // tighten (shorter LIGHT/WARNING, longer DARK) as the player advances, keyed
 // to DIFFICULTY_MID_PROGRESS/DIFFICULTY_LATE_PROGRESS below.
@@ -58,12 +52,14 @@ export const REACTION_GRACE_PERIOD_SECONDS = 0.2;
 // longer counts as safe.
 export const MOVEMENT_THRESHOLD = 0.12;
 
-export const GHOST_INITIAL_DISTANCE = 20;
-export const GHOST_LOSS_THRESHOLD = 3;
-// Units of ghostDistance consumed per second of illegal movement at full
-// input magnitude -- tuned so one short, panicked dash in the dark costs a
-// few units, not the whole margin (see PROCESS.md's fairness trace).
-export const GHOST_PENALTY_PER_SECOND = 5.5;
+// How many cumulative seconds of illegal movement in the dark (see
+// GameRules.accumulateDarknessSeconds) it takes to die -- never resets
+// except on a full game reset, so several short dashes across separate dark
+// cycles add up rather than each getting a clean slate. Tuned to roughly the
+// same order of magnitude as the old ghost-distance budget
+// ((GHOST_INITIAL_DISTANCE - GHOST_LOSS_THRESHOLD) / GHOST_PENALTY_PER_SECOND
+// used to be ~3.1s of full-throttle illegal movement before a catch).
+export const DARKNESS_DEATH_SECONDS = 3;
 
 // The final dramatic sequence: once this close to the exit, the ordinary
 // cycle is overridden by one longer, forced dark period before the exit

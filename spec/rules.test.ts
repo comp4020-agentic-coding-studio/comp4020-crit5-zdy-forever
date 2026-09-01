@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { applyDarknessPenalty, checkExitReached, checkGhostCaught, isIllegalMovement } from "../src/game/GameRules.ts";
+import { accumulateDarknessSeconds, checkDarknessDeath, checkExitReached, isIllegalMovement } from "../src/game/GameRules.ts";
 import { transition } from "../src/game/GameState.ts";
 
 // Pure game rules -- no rendering, no DOM, no jsdom. This is the crit spec's
 // "one rule of the game has a focused automated test" line: moving while the
 // lights are out is the one rule the whole game hangs off.
-describe("moving during darkness brings the ghost closer", () => {
-  it("given the lights are dark and the grace period has passed, moving decreases ghostDistance", () => {
-    const next = applyDarknessPenalty(20, "dark", 1, 1, 1, 5);
-    expect(next).toBeLessThan(20);
+describe("moving during darkness accumulates seconds toward death", () => {
+  it("given the lights are dark and the grace period has passed, moving accumulates seconds", () => {
+    const next = accumulateDarknessSeconds(0, "dark", 1, 1, 1);
+    expect(next).toBeGreaterThan(0);
   });
 
-  it("given the lights are dark, standing still leaves ghostDistance unchanged", () => {
-    const next = applyDarknessPenalty(20, "dark", 0, 1, 1, 5);
-    expect(next).toBe(20);
+  it("given the lights are dark, standing still leaves the accumulated total unchanged", () => {
+    const next = accumulateDarknessSeconds(0, "dark", 0, 1, 1);
+    expect(next).toBe(0);
   });
 
   it("given the lights are on, moving never counts as illegal", () => {
@@ -22,31 +22,32 @@ describe("moving during darkness brings the ghost closer", () => {
 
   it("moving within the reaction grace period is not punished", () => {
     expect(isIllegalMovement("dark", 1, 0.05)).toBe(false);
-    const next = applyDarknessPenalty(20, "dark", 1, 0.05, 1, 5);
-    expect(next).toBe(20);
+    const next = accumulateDarknessSeconds(0, "dark", 1, 0.05, 1);
+    expect(next).toBe(0);
   });
 
-  it("ghostDistance never drops below zero", () => {
-    const next = applyDarknessPenalty(1, "dark", 1, 1, 1, 5);
-    expect(next).toBe(0);
+  it("accumulated seconds never reset except by a full game reset -- separate illegal moves add up", () => {
+    const afterFirst = accumulateDarknessSeconds(0, "dark", 1, 1, 1);
+    const afterSecond = accumulateDarknessSeconds(afterFirst, "dark", 1, 1, 1);
+    expect(afterSecond).toBeGreaterThan(afterFirst);
   });
 });
 
-describe("the ghost reaching the loss threshold ends the game", () => {
-  const lossThreshold = 3;
+describe("accumulating enough darkness seconds ends the game", () => {
+  const deathThreshold = 3;
 
-  it("given ghostDistance is at or below the threshold, the game is lost", () => {
-    expect(checkGhostCaught(2, lossThreshold)).toBe(true);
-    expect(transition("playing", { type: "ghostCaught" })).toBe("lost");
+  it("given the accumulated seconds are at or above the threshold, the game is lost", () => {
+    expect(checkDarknessDeath(3, deathThreshold)).toBe(true);
+    expect(transition("playing", { type: "diedInDarkness" })).toBe("lost");
   });
 
-  it("given ghostDistance is above the threshold, the game continues", () => {
-    expect(checkGhostCaught(5, lossThreshold)).toBe(false);
+  it("given the accumulated seconds are below the threshold, the game continues", () => {
+    expect(checkDarknessDeath(1, deathThreshold)).toBe(false);
   });
 
-  it("a catch only ends the game while it's actually being played", () => {
-    expect(transition("won", { type: "ghostCaught" })).toBe("won");
-    expect(transition("lost", { type: "ghostCaught" })).toBe("lost");
+  it("a death event only ends the game while it's actually being played", () => {
+    expect(transition("won", { type: "diedInDarkness" })).toBe("won");
+    expect(transition("lost", { type: "diedInDarkness" })).toBe("lost");
   });
 });
 

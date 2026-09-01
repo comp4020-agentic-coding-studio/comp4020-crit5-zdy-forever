@@ -66,8 +66,8 @@ describe("teaches itself -- no instructions, on screen or off", () => {
 
 // The spec's other mechanically-checkable line -- "one rule of the game has
 // a focused automated test" -- lives in spec/rules.test.ts: moving during
-// darkness brings the ghost closer, and it ending the game (caught) or
-// reaching the exit (escaped) are both covered there too. Whether play can
-// actually be lost, and whether a stranger reaches an ending in five minutes
-// without instructions, is the crit's job to play and judge -- see the
-// published spec.
+// darkness accumulates seconds toward death, and it ending the game (died in
+// darkness) or reaching the exit (escaped) are both covered there too.
+// Whether play can actually be lost, and whether a stranger reaches an
+// ending in five minutes without instructions, is the crit's job to play and
+// judge -- see the published spec.
